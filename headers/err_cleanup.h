@@ -9,6 +9,8 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
+
 
 #define ERR (-1)     // Definition of the error value
 #define MEMERR (-2)     // Definition of a value indicating a memory management error
@@ -22,16 +24,16 @@
 /*
 #else
   #define LOG_DEBUG(fmt, ...)
-#endif
 */
+#endif
 
 #ifdef MTX_DEBUG      // Definition of a printing debug function for mutexes
   #define LOG_MTX(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 /*
 #else
   #define LOG_MTX(fmt, ...)
-#endif
 */
+#endif
 
 // The following functions taking care of mem-deallocation tasks take different parameter based on their focus
 void cleanup_f(int, ...);     // Function handling the closure of a File Descriptor and the freeing of a non-definite number of pointers (terminating with a NULL pointer)

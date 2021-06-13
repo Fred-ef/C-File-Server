@@ -1,0 +1,1 @@
+- Il client prova a riconnettersi fino ad un massimo di n volte se il server non è ancora pronto
