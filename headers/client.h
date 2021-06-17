@@ -11,6 +11,4 @@
 #include "definitions.h"
 #include "parser.h"
 
-void read_config(char* path);       // Reads the configuration file and extracts its information
-
 #endif // client_h

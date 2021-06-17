@@ -53,3 +53,8 @@ dkms.conf
 
 # Document files
 *.odt
+notes.txt
+impl.txt
+
+# Folders
+.vscode/
