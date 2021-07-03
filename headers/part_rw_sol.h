@@ -8,6 +8,7 @@
 
 #include "err_cleanup.h"     // Including definitions of ERR and SUCCESS
 
-int readn(int fd, char* ptr, int n);     // Wrapper function of the read SysCall addressing the partial read problem
+int readn(int fd, void* ptr, int n);     // Wrapper function of the read SysCall addressing the partial read problem
+int writen(int fd, void* ptr, int n);       // Wrapper function of the write SysCall drressing the partial write problem
 
 #endif // part_rw_sol_h

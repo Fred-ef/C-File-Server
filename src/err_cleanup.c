@@ -14,12 +14,12 @@ void cleanup_f(int fd, ...) {
   va_end(va);
 }
 
-void cleanup_p(void* ptr, ...) {
+void cleanup_pointers(void* ptr, ...) {
   va_list va;
   va_start(va, ptr);
   void* temp;
 
-  free(ptr);
+  if(ptr) free(ptr);
   while((temp=va_arg(va, void*))!=NULL) free(temp);
   va_end(va);
 }

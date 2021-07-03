@@ -1,7 +1,7 @@
 /* DESCRIZIONE API CLIENT */
 
-#ifndef client_API.h
-#define client_API.h
+#ifndef client_API_h
+#define client_API_h
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -13,11 +13,14 @@
 #include "err_cleanup.h"
 #include "definitions.h"
 #include "util.h"
+#include "client_server_comm.h"
+#include "part_rw_sol.h"
 
 #define RECONNECT_TIMER 200     // time to wait between one connection attempt and another
 
 extern short fd_sock;       // holds the file descriptor representing the connection to the server
-extern char** conn_addr;        // holds the address to which the clients connect in the openConnection call
+extern char* conn_addr;        // holds the address to which the clients connect in the openConnection call
+extern bool is_connected;       // set to 1 when the connection with the server is established, 0 otherwise
 
 
 /* ########################## Main functions ################################## */
@@ -50,4 +53,4 @@ int removeFile(const char* pathname);
 
 static short sleep_ms(int);        // makes the caller sleep for 200ms
 
-#endif // client_API.h
+#endif // client_API_h

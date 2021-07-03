@@ -18,6 +18,7 @@
 #define S_TO_NS(a) a*S_TO_NS_CONV
 
 typedef unsigned char bool;     // Type definition for the boolean type
+typedef unsigned char byte;     // Type definition for the raw byte type
 typedef struct timespec stimespec;      // Type definition for the timespectype
 
 #endif // definitions_h

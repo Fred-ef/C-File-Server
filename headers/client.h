@@ -10,5 +10,6 @@
 #include "err_cleanup.h"
 #include "definitions.h"
 #include "parser.h"
+#include "client_server_comm.h"
 
 #endif // client_h

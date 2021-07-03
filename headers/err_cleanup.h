@@ -37,6 +37,6 @@
 
 // The following functions taking care of mem-deallocation tasks take different parameter based on their focus
 void cleanup_f(int, ...);     // Function handling the closure of a File Descriptor and the freeing of a non-definite number of pointers (terminating with a NULL pointer)
-void cleanup_p(void*, ...);     // Function handling the freeing of a non-definite (and non-zero) number of pointers (terminating with a NULL pointer)
+void cleanup_pointers(void*, ...);     // Function handling the freeing of a non-definite (and non-zero) number of pointers (terminating with a NULL pointer)
 
 #endif // err_cleanup_h
