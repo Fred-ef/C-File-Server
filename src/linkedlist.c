@@ -9,9 +9,11 @@ void ll_insertHead(head_ptr head, void* data) {
   node_t_ptr newelement=(node_t_ptr)malloc(sizeof(generic_node_t));     // Creation of the new head-to-be
   newelement->data=data;     // Initializes the data of the new element
   newelement->next=NULL;     // Temporarily equates the next element of the new element to NULL value
+  newelement->prev=NULL;     // Temporarily equates the prev element of the new element to NULL value
 
-  newelement->next=*head;     // Link new element with previous head (might be NULL)
-  *head=newelement;     // link current head with new element
+  if((*head)) (*head)->prev=newelement;     // If the list wasn't empty, update the old head's predecessor
+  newelement->next=(*head);     // The new head points to the old head
+  (*head)=newelement;     // link current head with new element
 }
 
 // Inserts a generic node at the tail of the list
@@ -21,12 +23,14 @@ void ll_insertTail(head_ptr head, void* data) {
   node_t_ptr newelement=(node_t_ptr)malloc(sizeof(generic_node_t));     // Creation of the new tail-to-be
   newelement->data=data;     // Initializes the data of the new element
   newelement->next=NULL;     // Temporarily equates the next element of the new element to NULL value
+  newelement->prev=NULL;     // Temporarily equates the prev element of the new element to NULL value
 
   if((*head)==NULL) *head=newelement;     // If the list has no elements, place the element in head position
   else {
     node_t_ptr aux=NULL;     // Declaration of an auxiliary pointer that helps navigate the list
     for(aux=(*head); aux->next!=NULL; aux=aux->next);     // Iterates through the list till the last element (tail)
     aux->next=newelement;     // Links the old tail to the new tail
+    newelement->prev=aux;
   }
 }
 
@@ -37,6 +41,7 @@ void ll_removeHead(head_ptr head) {
   if((*head)==NULL) return;     // List already empty
   else {
     node_t_ptr temp=*head;     // Saves current head in temp elem
+    if((*head)->next) ((*head)->next)->prev=NULL;     // The next element is now the head, thus his prev pointer is null
     *head=(*head)->next;     // Replaces the old head with its successor (might be NULL)
     free(temp->data);     // Deallocates the old head's data
     free(temp);     // Deallocates the old head
@@ -48,7 +53,10 @@ void ll_popHead(head_ptr head) {
   if(head==NULL) return;    // Uninitialized list
 
   if((*head)==NULL) return;   // List already empty
-  else *head=(*head)->next;    // Replaces the old head with its successor (might be NULL)
+  else {
+    if((*head)->next) ((*head)->next)->prev=NULL;
+    *head=(*head)->next;    // Replaces the old head with its successor (might be NULL)
+  }
 }
 
 // Removes the generic node at the list's tail
