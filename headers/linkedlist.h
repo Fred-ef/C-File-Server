@@ -12,6 +12,7 @@
 typedef struct generic_node_t {
   void* data;
   struct generic_node_t* next;
+  struct generic_node_t* prev;
 } generic_node_t;
 
 typedef generic_node_t** head_ptr;
