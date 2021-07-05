@@ -5,6 +5,7 @@
 
 #include <pthread.h>
 #include <errno.h>
+#include <stdlib.h>
 
 typedef struct generic_node_t {
   void* data;

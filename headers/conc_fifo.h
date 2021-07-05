@@ -3,16 +3,12 @@
 #ifndef conc_fifo_h
 #define conc_fifo_h
 
-#include <stdlib.h>
-#include <pthread.h>
-#include <errno.h>
-
 #include "conc_elem.h"
 #include "definitions.h"
 #include "err_cleanup.h"
 
 typedef struct conc_queue {
-    generic_node_t* head;
+    conc_node head;
 } conc_queue;
 
 int conc_fifo_init(conc_queue*);     // Queue initialization

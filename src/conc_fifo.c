@@ -83,7 +83,16 @@ int conc_fifo_isEmpty(conc_queue* queue) {
   int temperr;
   temperr=pthread_mutex_lock(&((queue->head)->node_mtx));
   if(temperr) {errno=temperr; return ERR;}
-  if(!((queue->head)->next)) return TRUE;
+
+  if(!((queue->head)->next)) {      // If empty, return TRUE
+    temperr=pthread_mutex_unlock(&((queue->head)->node_mtx));
+    if(temperr) {errno=temperr; return ERR;}
+    return TRUE;
+  }
+  
+  // else, unlock mutex and return FALSE
+  temperr=pthread_mutex_unlock(&((queue->head)->node_mtx));
+  if(temperr) {errno=temperr; return ERR;}
 
   return FALSE;
 }
