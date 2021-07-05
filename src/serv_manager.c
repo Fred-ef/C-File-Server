@@ -2,7 +2,8 @@
 
 thread_pool_cap=0;      // Indicates the maximum number of worker-threads the server can manage at the same time
 sock_addr=NULL;       // will hold the server's main socket address
-requests_queue=PTHREAD_MUTEX_INITIALIZER;     // Serves as a mutual exclusion mutex for worker-threads to access the requests queue
+requests_queue=NULL;
+requests_queue_mtx=PTHREAD_MUTEX_INITIALIZER;     // Serves as a mutual exclusion mutex for worker-threads to access the requests queue
 
 
 int main(int argc, char* argv[]) {
