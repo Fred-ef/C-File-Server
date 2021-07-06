@@ -1,13 +1,14 @@
 #include "conc_fifo.h"
 
 
-int conc_fifo_init(conc_queue* queue) {
-    if(!queue) {errno=EINVAL; return ERR;}
+conc_queue* conc_fifo_create(void* data) {
+  conc_queue* queue=(conc_queue*)malloc(sizeof(conc_queue));
+  if(!queue) return NULL;
 
-    queue->head=conc_node_create(NULL);
-    if(!(queue->head)) return ERR;
+  queue->head=conc_node_create(data);
+  if(!(queue->head)) {free(queue); return NULL;}
 
-    return SUCCESS;
+  return queue;
 }
 
 

@@ -7,6 +7,9 @@
 #include <errno.h>
 #include <stdlib.h>
 
+#include "definitions.h"
+#include "err_cleanup.h"
+
 typedef struct generic_node_t {
   void* data;
   struct generic_node_t* next;
