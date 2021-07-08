@@ -13,8 +13,7 @@ conc_hash_table* conc_hash_create(int size) {
 
     ht->size=size;      // memorizes the table's size inside its struct
 
-    int i;      // for loop index
-
+    int i;      // for loop index, temp err var
     // in our case, each element will already be allocated: no need to take up extra memory
     for(i=0; i<2*size; i++) {
         ((ht->table)[i]).entry=NULL;
@@ -29,9 +28,14 @@ hash_create_cleanup:
     return NULL;
 }
 
-int conc_hash_hashfun(uintptr_t key, int size) {
-    printf("Index: %u\n", ((key%(get_next_prime(2*size))) % (2*size)));
-    return ((key%(get_next_prime(2*size))) % (2*size));
+// calculates a hashing value of the string passed as parameter
+unsigned int conc_hash_hashfun(const char* key, int size) {
+    unsigned int i, result=0;
+    for(i=0; i<(strlen(key)); i++) {
+        result = key[i] + (result << 6) + (result << 16) - result;
+    }
+    printf("THREAD: %d\tKEY: %u\n", (gettid()), ((result%(get_next_prime(2*size))) % (2*size)));
+    return ((result%(get_next_prime(2*size))) % (2*size));
 }
 
 
