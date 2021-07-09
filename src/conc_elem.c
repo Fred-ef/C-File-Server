@@ -24,6 +24,7 @@ void* conc_node_destroy(conc_node node) {
     temperr=pthread_mutex_destroy(&(node->node_mtx));
     if(temperr) {errno=temperr; return NULL;}
     free(node);
+    node=NULL;
 
     return (void*)tempdata;
 }

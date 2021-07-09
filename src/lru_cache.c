@@ -1,4 +1,5 @@
 #include "lru_cache.h"
+char** strings=NULL;
 
 
 // returns an LRU-cache of the given size
@@ -95,7 +96,6 @@ int lru_cache_push(lru_cache* cache, file* file) {
         
         // if the entry was occupied by another element, continue probing
         else {
-            printf("PROSSIMO ELEM\n");
             temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
             if (temperr) {errno=temperr; goto cache_push_cleanup_3;}
             idx++;
@@ -171,13 +171,15 @@ file* lru_cache_pop(lru_cache* cache) {
             // if we find the element, we mark it as deleted and update cache's size
             else if((temperr=lru_cache_is_duplicate(((ht->table)[idx]).entry, aux))) {
                 if(temperr==TRUE) {
-                    // mark the element as deleted
-                    ((ht->table)[idx]).entry=ht->mark;
                     // update cache's size
                     temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
                     if (temperr) {errno=temperr; goto cache_pop_cleanup_1;}
+                    // mark the element as deleted
+                    ((ht->table)[idx]).entry=ht->mark;
                     cache->curr_file_number--;
                     cache->curr_byte_size-=(file->file_size);
+                    // updating head pointer
+                    (queue->head)->next=aux->next;
                     printf("POPPED CORRECTLY\n\n#FILE: %d\t#BYTES: %d\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
                     temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
                     if (temperr) {errno=temperr; goto cache_pop_cleanup_1;}
@@ -197,10 +199,6 @@ file* lru_cache_pop(lru_cache* cache) {
 
     temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
     if (temperr) {errno=temperr; goto cache_pop_cleanup_2;}
-
-    // updating head pointer
-    (queue->head)->next=aux->next;
-
     temperr=pthread_mutex_unlock(&((queue->head)->node_mtx));
     if(temperr) {errno=temperr; goto cache_pop_cleanup_2;}
     temperr=pthread_mutex_unlock(&(aux->node_mtx));
@@ -248,7 +246,6 @@ file* lru_cache_lookup(lru_cache* cache, const char* filename) {
             break;
         }
         // if we encountered the wrong element, continue probing
-        printf("\nATTENZIONE!!! FILE NON TROVATO\n\n");
         temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
         if (temperr) {errno=temperr; return NULL;}
         idx++;
@@ -260,6 +257,138 @@ file* lru_cache_lookup(lru_cache* cache, const char* filename) {
 
     return file;        // returns either the file or NULL if the lookup failed
 }
+
+
+// if present, removes the file with the given name from the cache and returns it
+file* lru_cache_remove(lru_cache* cache, const char* filename) {
+    if(!cache || !filename) {errno=EINVAL; return NULL;}
+    if(!(cache->ht) || !(cache->queue)) {errno=EINVAL; return NULL;}
+
+    int temperr;
+    file* file=NULL;
+    conc_queue* queue=cache->queue;     // shortcut to cache's queue
+    conc_hash_table* ht=cache->ht;      // shortcut to cache's hashtable
+
+    conc_node aux_node=NULL, aux1=NULL, aux2=NULL;
+    unsigned int idx=lru_cache_addr_lookup(cache, filename, &aux_node);
+    if(!aux_node || idx==(unsigned)ERR) return NULL;
+
+    aux2=queue->head;
+    temperr=pthread_mutex_lock(&(aux2->node_mtx));
+    if(temperr) {errno=temperr; return NULL;}
+
+    if(!(aux2->next)) {errno=ENOENT; goto cache_remove_cleanup_2;}
+    aux1=(queue->head)->next;
+
+    while((aux1!=NULL) && (aux1!=aux_node)) {       // scan untill the element (or NULL value) is found
+        // first lock the next element
+        temperr=pthread_mutex_lock(&(aux1->node_mtx));
+        if(temperr) {errno=temperr; goto cache_remove_cleanup_2;}
+        // then unlock the previous
+        temperr=pthread_mutex_unlock(&(aux2->node_mtx));
+        if(temperr) {errno=temperr; goto cache_remove_cleanup_1;}
+        // then update both pointers
+        aux2=aux1;
+        aux1=aux1->next;
+    }
+
+    // if the queue has been scanned (or the element has been removed meanwhile) return an error
+    if(!aux1) {errno=ENOENT; goto cache_remove_cleanup_2;}
+
+    // if the element has been found, proceed to lock it and remove it
+    temperr=pthread_mutex_lock(&(aux1->node_mtx));
+    if(temperr) {errno=temperr; goto cache_remove_cleanup_2;}
+
+    // locking the hash table entry relative to the element
+    temperr=pthread_mutex_lock(&(((ht->table)[idx]).entry_mtx));
+    if(temperr) {errno=temperr; goto cache_remove_cleanup_4;}
+
+    // if the element has meanwhile been removed/substituted, return an error
+    if(!(((ht->table)[idx]).entry) || (((ht->table)[idx]).entry)==(ht->mark) || (((ht->table)[idx]).entry)!=aux_node)
+            {errno=ENOENT; goto cache_remove_cleanup_3;}
+
+    // updating cache memory information
+    temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
+    if (temperr) {errno=temperr; goto cache_remove_cleanup_3;}
+
+    // actual removal of the element
+    file=((ht->table)[idx]).entry->data;
+    ((ht->table)[idx]).entry=ht->mark;
+    cache->curr_file_number--;
+    cache->curr_byte_size-=file->file_size;
+    printf("REMOVED CORRECTLY\n\n#FILE: %d\t#BYTES: %d\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
+    // removal from the queue
+    aux2->next=aux1->next;
+
+    temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
+    if (temperr) {errno=temperr; goto cache_remove_cleanup_3;}
+    temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
+    if(temperr) {errno=temperr; goto cache_remove_cleanup_4;}
+    temperr=pthread_mutex_unlock(&(aux2->node_mtx));
+    if(temperr) {errno=temperr; goto cache_remove_cleanup_1;}
+    temperr=pthread_mutex_unlock(&(aux1->node_mtx));
+    if(temperr) {errno=temperr; return NULL;}
+
+
+    return (file=conc_node_destroy(aux1));
+
+    // ERROR CLEANUP SECTION
+cache_remove_cleanup_1:
+    temperr=pthread_mutex_unlock(&(aux1->node_mtx));
+    if(temperr) errno=temperr;
+    return NULL;
+cache_remove_cleanup_2:
+    temperr=pthread_mutex_unlock(&(aux2->node_mtx));
+    if(temperr) errno=temperr;
+    return NULL;
+cache_remove_cleanup_3:
+    temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
+    if(temperr) errno=temperr;
+cache_remove_cleanup_4:
+    temperr=pthread_mutex_unlock(&(aux2->node_mtx));
+    if(temperr) errno=temperr;
+    temperr=pthread_mutex_unlock(&(aux1->node_mtx));
+    if(temperr) errno=temperr;
+    return NULL;
+}
+
+
+// returns address and index of the node searched (if present)
+static unsigned int lru_cache_addr_lookup(lru_cache* cache, const char* filename, conc_node* node) {
+    if(!cache || !filename) {errno=EINVAL; return ERR;}
+    if(!(cache->ht) || !(cache->queue)) {errno=EINVAL; return ERR;}
+
+    conc_hash_table* ht=cache->ht;
+    
+    int temperr;
+    unsigned int idx=conc_hash_hashfun(filename, (ht->size));
+    while(1) {
+        temperr=pthread_mutex_lock(&(((ht->table)[idx]).entry_mtx));
+        if (temperr) {errno=temperr; return ERR;}
+
+        // if we encounter a NULL value, then the element is not cached
+        if(((ht->table)[idx]).entry==NULL) {errno=ENOENT; break;}
+        // if we encounter a deleted element, we can go on to the next cycle
+        else if(((ht->table)[idx]).entry==ht->mark);
+        // if we find the element, we can return it
+        else if(lru_cache_is_file_name(((ht->table)[idx].entry), filename)) {
+            printf("TROVATOOOOOOOOOO\n\n");
+            *node=((ht->table)[idx]).entry;
+            break;
+        }
+        // if we encountered the wrong element, continue probing
+        temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
+        if (temperr) {errno=temperr; return ERR;}
+        idx++;
+        idx=idx%(ht->size*2);
+    }
+
+    temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
+    if (temperr) {errno=temperr; return ERR;}
+
+    return idx;        // returns either the file or NULL if the lookup failed
+}
+
 
 // returns TRUE if the element is already present in the hashtable, FALSE otherwise
 static int lru_cache_is_duplicate(conc_node elem_a, conc_node elem_b) {
@@ -273,6 +402,7 @@ static int lru_cache_is_duplicate(conc_node elem_a, conc_node elem_b) {
 // returns TRUE if the name of the file is the string given, FALSE otherwise
 static int lru_cache_is_file_name(conc_node elem_a, const char* filename) {
     if(!elem_a || !filename) {errno=EINVAL; return ERR;}
+    printf("\nCURR_FILE_NAME: %s\t FILENAME: %s\n", (((file*)elem_a->data)->name), filename);
     if(!(strcmp(((file*)elem_a->data)->name, filename))) return TRUE;
 
     return FALSE;
@@ -324,9 +454,7 @@ void* pushfun(void* arg) {
     for(i=0; i<50; i++) {
         byte* num=(byte*)malloc(sizeof(byte));
         *num=i;
-        char str[] = { [41] = '\1' }; // make the last character non-zero so we can test based on it later
-        rand_str(str, sizeof str - 1);
-        file* file=lru_cache_build_file(str, i, num, 0, 0, 0);
+        file* file=lru_cache_build_file(strings[i], i+1, num, 0, 0, 0);
         lru_cache_push(cache, file);
         printf("Thread %d pushed\n", (gettid()));
     }
@@ -353,10 +481,21 @@ void* lookupfun(void* arg) {
     file* file;
     printf("Thread looker %d starting\n", (gettid()));
     for(i=0; i<50; i++) {
-        char str[] = { [41] = '\1' }; // make the last character non-zero so we can test based on it later
-        rand_str(str, sizeof str - 1);
-        file=lru_cache_lookup(cache, str);
-        if(file) printf("I got file: '%s'\n", (file->name));
+        file=lru_cache_lookup(cache, strings[i]);
+        if(file) printf("#################### I got file: '%s'\n", (file->name));
+    }
+
+    return (void*)NULL;
+}
+
+void* removefun(void* arg) {
+    lru_cache* cache=(lru_cache*)arg;
+    int i;
+    file* file;
+    printf("Thread remover %d starting\n", (gettid()));
+    for(i=0; i<50; i++) {
+        file=lru_cache_remove(cache, strings[i]);
+        if(file) printf("#################### I got file: '%s'\n", (file->name));
     }
 
     return (void*)NULL;
@@ -369,31 +508,49 @@ int main() {
     if(!tid_arr) return -1;
     int i;
 
+    strings=(char**)malloc(50*sizeof(char*));
+    for(i=0; i<50; i++) {
+        char str[] = { [41] = '\1' }; // make the last character non-zero so we can test based on it later
+        rand_str(str, sizeof str - 1);
+        strings[i]=(char*)malloc(255*sizeof(char));
+        strcpy(strings[i], str);
+    }
+    /*
     for(i=0; i<20; i++) {
         if((i%2)==0) {
             pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
             printf("Spawned thread PUSHER %d\n", i);
         }
         else {
-            pthread_create(&(tid_arr[i]), NULL, popfun, (void*)cache);
+            pthread_create(&(tid_arr[i]), NULL, lookupfun, (void*)cache);
             printf("Spawned thread POPPER %d\n", i);
         }
-        
     }
 
     for(i=0; i<20; i++) {
         pthread_join(tid_arr[i], NULL);
         printf("Joined thread %d\n", i);
     }
+    */
 
     for(i=0; i<10; i++) {
-        pthread_create(&(tid_arr[i]), NULL, lookupfun, (void*)cache);
-        printf("Spawned thread LOOKER %d\n", i);
+        pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
+        printf("Spawned thread PUSHER %d\n", i);
     }
 
     for(i=0; i<10; i++) {
         pthread_join(tid_arr[i], NULL);
-        printf("Joined thread %d\n", i);
+        printf("Joined thread PUSHER %d\n", i);
+    }
+
+    for(i=0; i<10; i++) {
+        pthread_create(&(tid_arr[i]), NULL, removefun, (void*)cache);
+        printf("Spawned thread REMOVER %d\n", i);
+    }
+
+    for(i=0; i<10; i++) {
+        pthread_join(tid_arr[i], NULL);
+        printf("Joined thread REMOVER %d\n", i);
     }
 
     return 0;
