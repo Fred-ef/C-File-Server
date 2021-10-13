@@ -10,14 +10,14 @@
 #include "conc_elem.h"
 
 typedef struct conc_hash_entry {
-    conc_node entry;
-    pthread_mutex_t entry_mtx;
+    conc_node entry;        // the element held in the current slot
+    pthread_mutex_t entry_mtx;      // mutex for synchronizing the single element
 } conc_hash_entry;
 
 typedef struct conc_hash_table {
-    conc_hash_entry* table;
-    conc_node mark;
-    int size;
+    conc_hash_entry* table;     // Pointer to the hash table (acts as its head)
+    conc_node mark;     // special-value element that will be used as a marker
+    int size;       // holds the size of the hash table
 } conc_hash_table;
 
 conc_hash_table* conc_hash_create(int);      // Creates and returns an empty concurrent hashtable

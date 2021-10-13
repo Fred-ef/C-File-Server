@@ -89,6 +89,7 @@ int lru_cache_push(lru_cache* cache, file* file) {
 
         // if the element is already cached, return an error
         else if((temperr=lru_cache_is_duplicate(((ht->table)[idx]).entry, newelement))) {
+            printf("THREAD: %d\tKEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
             if(temperr==TRUE) errno=EEXIST;
             else errno=EINVAL;
             goto cache_push_cleanup_2;
@@ -277,6 +278,7 @@ file* lru_cache_remove(lru_cache* cache, const char* filename) {
     temperr=pthread_mutex_lock(&(aux2->node_mtx));
     if(temperr) {errno=temperr; return NULL;}
 
+    // if the list is empty, return a not-found error
     if(!(aux2->next)) {errno=ENOENT; goto cache_remove_cleanup_2;}
     aux1=(queue->head)->next;
 
@@ -515,7 +517,8 @@ int main() {
         strings[i]=(char*)malloc(255*sizeof(char));
         strcpy(strings[i], str);
     }
-    /*
+
+
     for(i=0; i<20; i++) {
         if((i%2)==0) {
             pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
@@ -531,7 +534,7 @@ int main() {
         pthread_join(tid_arr[i], NULL);
         printf("Joined thread %d\n", i);
     }
-    */
+    
 
     for(i=0; i<10; i++) {
         pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
@@ -552,6 +555,9 @@ int main() {
         pthread_join(tid_arr[i], NULL);
         printf("Joined thread REMOVER %d\n", i);
     }
+
+
+    printf("#files: %d\t#bytes: %d\n", cache->curr_file_number, cache->curr_byte_size);
 
     return 0;
 }
