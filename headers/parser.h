@@ -21,6 +21,5 @@ typedef struct stat sstat;     // Redefinition of the stat struct, used to retri
 
 int parse(char*, char*, unsigned short*);     // Takes as input the parameter to search, the file in which the parameter is to be searched and the variable in which to save its value
 int parse_s(char*, char*, char**);     // Takes as input the string parameter to search, the file in which the parameter is to be searched and the string in which to save its value
-void parse_command(char*, char*, char**);       // Takes as input a command and parses it to determine the request
 
 #endif     // parser_h

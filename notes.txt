@@ -1,3 +1,1 @@
 - il flag "CANWRITEFILE" viene settato ad 1 quando è stata fatta una write con O_CREATE e messo a 0 da qualunque altro comando
-
-inserimento: salva ref a head->next in el; locka el; se è stato eliminato, ERR, altrimenti locka el->prev; se el->prev==head, inserisci, altrimeenti loop fino alla testa e poi inserisci

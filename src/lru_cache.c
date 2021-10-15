@@ -9,8 +9,6 @@ lru_cache* lru_cache_create(int max_file_number, int max_byte_size) {
 
     cache->queue=conc_fifo_create(NULL);            // allocates the cache's queue
     if(!(cache->queue)) goto cache_create_cleanup;
-    cache->ht=conc_hash_create(max_file_number);        // allocates the cache's hashtable
-    if(!(cache->ht)) goto cache_create_cleanup;;
 
     cache->max_file_number=max_file_number;     // set the maximum numbers of file allowed
     cache->max_byte_size=max_byte_size;         // set the maximum memory usable
@@ -23,7 +21,7 @@ lru_cache* lru_cache_create(int max_file_number, int max_byte_size) {
     return cache;       // returns the cache built
 
 cache_create_cleanup:
-    cleanup_pointers(cache, (cache->queue), (cache->ht), NULL);
+    cleanup_pointers(cache, (cache->queue), NULL);
     return NULL;
 }
 
@@ -31,11 +29,10 @@ cache_create_cleanup:
 // pushes the given file inside the cache
 int lru_cache_push(lru_cache* cache, file* file) {
     if(!cache || !file) {errno=EINVAL; return ERR;}
-    if(!(cache->ht) || !(cache->queue)) {errno=EINVAL; return ERR;}
+    if(!(cache->queue)) {errno=EINVAL; return ERR;}
 
     int temperr, found=0;       // auxiliary variables
     conc_queue* queue=cache->queue;     // shortcut to cache's queue
-    conc_hash_table* ht=cache->ht;      // shortcut to cache's hashtable
     conc_node newelement=conc_node_create((void*)file);     // creating an entry out of the file passed as parameter
     if(!newelement) return ERR;
 
@@ -56,58 +53,44 @@ int lru_cache_push(lru_cache* cache, file* file) {
     }
 
 
-    // first, find an entry in the hashtable and lock it
-    unsigned int idx=conc_hash_hashfun((file->name), (ht->size));
-    while(!found) {
-        // lock the hashtable entry
-        temperr=pthread_mutex_lock(&(((ht->table)[idx]).entry_mtx));
-        if (temperr) {errno=temperr; goto cache_push_cleanup_3;}
+    // check if there is enough space to memorize the current file
+    temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
+    if (temperr) {errno=temperr; goto cache_push_cleanup_3;}
 
-        // if the hashtable entry is empty, select it to insert the element
-        if(((ht->table)[idx]).entry==NULL || ((ht->table)[idx]).entry==(ht->mark)) {
+    // if the table is full, return an error
+    if(((cache->curr_file_number + 1) > cache->max_file_number) || ((cache->curr_byte_size + file->file_size) > cache->max_byte_size)) {
+        errno=ENOMEM;
+        goto cache_push_cleanup_1;
+    }
+    // if the table is NOT FULL, insert the element
+    else {
+        ((ht->table)[idx]).entry=newelement;
+        cache->curr_file_number++;
+        cache->curr_byte_size+=(file->file_size);
+        printf("PUSHED CORRECTLY\n\n#FILE: %d\t#BYTES: %d\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
+        temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
+        if (temperr) {errno=temperr; goto cache_push_cleanup_2;}
+        found=1;
+    }
 
-            // check if there is enough space to memorize the current file
-            temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
-            if (temperr) {errno=temperr; goto cache_push_cleanup_3;}
 
-            // if the table is full, return an error
-            if(((cache->curr_file_number + 1) > cache->max_file_number) || ((cache->curr_byte_size + file->file_size) > cache->max_byte_size)) {
-                errno=ENOMEM;
-                goto cache_push_cleanup_1;
-            }
-            // if the table is NOT FULL, insert the element
-            else {
-                ((ht->table)[idx]).entry=newelement;
-                cache->curr_file_number++;
-                cache->curr_byte_size+=(file->file_size);
-                printf("PUSHED CORRECTLY\n\n#FILE: %d\t#BYTES: %d\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
-                temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
-                if (temperr) {errno=temperr; goto cache_push_cleanup_2;}
-                found=1;
-            }
-        }
+    // if the element is already cached, return an error
+    else if((temperr=lru_cache_is_duplicate(((ht->table)[idx]).entry, newelement))) {
+        printf("THREAD: %d\tKEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
+        if(temperr==TRUE) errno=EEXIST;
+        else errno=EINVAL;
+        goto cache_push_cleanup_2;
+    }
 
-        // if the element is already cached, return an error
-        else if((temperr=lru_cache_is_duplicate(((ht->table)[idx]).entry, newelement))) {
-            printf("THREAD: %d\tKEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
-            if(temperr==TRUE) errno=EEXIST;
-            else errno=EINVAL;
-            goto cache_push_cleanup_2;
-        }
-        
-        // if the entry was occupied by another element, continue probing
-        else {
-            temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
-            if (temperr) {errno=temperr; goto cache_push_cleanup_3;}
-            idx++;
-            idx=idx%(ht->size*2);
-        }
-    }       // HASH SECTION END
+
+
+
+
+
+    
 
     // when at the tail, insert the element
     aux1->next=newelement;
-    temperr=pthread_mutex_unlock(&(((ht->table)[idx]).entry_mtx));
-    if (temperr) {errno=temperr; goto cache_push_cleanup_3;}
     temperr=pthread_mutex_unlock(&(aux1->node_mtx));
     if(temperr) {errno=temperr; goto cache_push_cleanup_4;}
     printf("INSERTED IN LIST\n");       // TODO REMOVE

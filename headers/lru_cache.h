@@ -5,12 +5,10 @@
 
 #include "conc_elem.h"
 #include "conc_fifo.h"
-#include "conc_hash.h"
 
 // defining the "lru cache" structure
 typedef struct lru_cache {
     conc_queue* queue;
-    conc_hash_table* ht;
     int max_file_number;
     int max_byte_size;
     int curr_file_number;
