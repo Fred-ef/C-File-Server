@@ -2,10 +2,12 @@
 
 short fd_sock=-1;      // initializing the socket fd to -1 (will return error if used)
 char* conn_addr=NULL;      // initializing the server-address note to NULL (will return error if used)
-static bool is_connected=0;     // set to 1 when the connection with the server is established, 0 otherwise
+bool is_connected=0;     // set to 1 when the connection with the server is established, 0 otherwise
 
 // Opens the connection to the server
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
+    if(!sockname) {errno=EINVAL; return ERR;}
+
     short errtemp;      // used for error-testing in syscalls
     short timeout;      // used for timeout expiration checking
 
@@ -52,6 +54,8 @@ cleanup:        // executes in case something went wrong and the operation canno
 
 
 int closeConnection(const char* sockname) {
+    if(!sockname) {errno=EINVAL; return ERR;}
+
     short errtemp;
 
     if(strcmp(sockname, conn_addr) != 0) {      // if the connection to close is different from the connection that is open, fail
@@ -67,7 +71,7 @@ int closeConnection(const char* sockname) {
 
 // TODO error management & errno
 int openFile(const char* pathname, int flags) {
-    if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(!pathname) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     int server_ret_code;        // will hold certain server responses for error detection

@@ -29,10 +29,12 @@ short compare_time(stimespec* a, stimespec* b) {
 
 short compare_current_time(stimespec* b) {
   short errtemp;
+  short result;
   stimespec* current=(stimespec*)malloc(sizeof(stimespec));   // TODO mem err
 
-  if((errtemp=clock_gettime(clock_gettime, current))==ERR) {     // Setting a time breakpoint for future calculation of the thread's execution time
+  if((errtemp=clock_gettime(CLOCK_REALTIME, current))==ERR) {     // Setting a time breakpoint for future calculation of the thread's execution time
     perror("Getting clock time: ");     // Printing debug message
+    free(current);
     return MEMERR;
   }
 
@@ -42,14 +44,16 @@ short compare_current_time(stimespec* b) {
   unsigned long ns_a = current->tv_nsec;
   unsigned long ns_b = b->tv_nsec;
 
-  if(sec_a>sec_b) return -1;
-  else if(sec_a<sec_b) return 1;
+  if(sec_a>sec_b) result=-1;
+  else if(sec_a<sec_b) result=1;
   else {
-    if(ns_a>ns_b) return -1;
-    else if(ns_a<ns_b) return 1;
-    else return 0;
+    if(ns_a>ns_b) result=-1;
+    else if(ns_a<ns_b) result=1;
+    else result=0;
   }
 
+  free(current);
+  return result;
 }
 
 short nanosleep_w(stimespec* a) {

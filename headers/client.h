@@ -6,7 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-// #include <string.h>
+#include <dirent.h>
 
 #include "err_cleanup.h"
 #include "definitions.h"
@@ -28,7 +28,7 @@ char t_flag=0;      // used in order to temporally distantiate consecutive reque
 
 byte conn_timeout=0;    // used to set a time-out to connection attempts
 byte conn_delay=0;      // used to set a time margin between consecutive connection attempts
-
-static int parse_command(char**);       // parses the command line, executing requests one by one
+char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
+char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
 
 #endif // client_h
