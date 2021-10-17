@@ -11,23 +11,20 @@
 #include "err_cleanup.h"
 #include "definitions.h"
 #include "parser.h"
-#include "client_server_comm.h"
-
-#define MAX_ARG_NUM 10
-#define MAX_ARG_LEN 128
 
 char f_flag=0;      // used in order not to duplicate the -f command
-char h_flag=0;      // used in order not to duplicate the -h command
 char p_flag=0;      // used in order not to duplicate the -p command
 
-char D_flag=0;      // used in order  to couple -D with -w or -W
-char d_flag=0;      // used in order  to couple -d with -r or -R
+byte D_flag=0;      // used in order  to couple -D with -w or -W
+byte d_flag=0;      // used in order  to couple -d with -r or -R
 
-char t_flag=0;      // used in order to temporally distantiate consecutive requests
+byte t_flag=0;      // used in order to temporally distantiate consecutive requests
 
+byte sleep_time=0;      // used to set a sleep between consecutive requests
 
-byte conn_timeout=0;    // used to set a time-out to connection attempts
-byte conn_delay=0;      // used to set a time margin between consecutive connection attempts
+byte conn_timeout=10;    // used to set a time-out to connection attempts
+byte conn_delay=500;      // used to set a time margin between consecutive connection attempts
+
 char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
 char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
 
