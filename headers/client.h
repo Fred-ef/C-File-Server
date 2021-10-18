@@ -23,7 +23,7 @@ byte t_flag=0;      // used in order to temporally distantiate consecutive reque
 byte sleep_time=0;      // used to set a sleep between consecutive requests
 
 byte conn_timeout=10;    // used to set a time-out to connection attempts
-byte conn_delay=500;      // used to set a time margin between consecutive connection attempts
+unsigned short conn_delay=500;      // used to set a time margin between consecutive connection attempts
 
 char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
 char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
