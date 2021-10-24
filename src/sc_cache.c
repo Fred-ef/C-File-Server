@@ -94,7 +94,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
 
         // if the element is not free and it is a duplicate, return an error
         // TODO gestire meglio, che casino (togliere unlock e metterne una alla fine)
-        else if((temperr=sc_cache_is_duplicate(((ht->table)[idx]).entry, new_file))) {  // TODO implementare
+        else if((temperr=is_duplicate(((ht->table)[idx]).entry, new_file))) {  // TODO implementare
             LOG_DEBUG("THREAD: %d\tKEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
             res=EEXIST;
         }
@@ -411,4 +411,12 @@ static int write_append(file* file, byte* data_written, unsigned bytes_written, 
     file->file_size=write_size;     // updating file's size
 
     return SUCCESS;
+}
+
+
+// helper function: returns TRUE if the files' names are equal, FALSE otherwise
+static int is_duplicate(file* file1, file* file2) {
+    // NULL checks already done in the insert procedure
+    if(!strcmp(file1->name, file2->name)) return TRUE;
+    else return FALSE;
 }
