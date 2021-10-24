@@ -1,5 +1,7 @@
 #include "sc_cache.h"
 
+nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
+
 static int open_file(file* file, int* usr_id);
 static int read_file(file* file_to_read, byte** data_read, int* usr_id);
 static int lock_file(file* file, int* usr_id);
@@ -17,6 +19,7 @@ static int int_ptr_cmp(const void* x, const void* y);
 // TODO -   controllare che si liberino le code di file aperti
 // TODO -   controllare che si liberi la copia dei file letti
 // TODO -   aggiungere cleanup per pulire l'intera cache dai file
+char** strings=NULL;
 
 
 sc_cache* sc_cache_create(int max_file_number, int max_byte_size) {
@@ -210,17 +213,23 @@ cleanup_alg:
 
 
 int sc_lookup(sc_cache* cache, char* file_name, op_code op, int* usr_id, byte** data_read, byte* data_written, unsigned bytes_written) {
-    if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized");}
-    if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified");}
-    if(op==READ_F && !data_read) {LOG_ERR(EINVAL, "lookup: invalid pointer provided");}
-    if((op==WRITE_F || op==WRITE_F_APP) && !data_written) {LOG_ERR(EINVAL, "lookup: invalid pointer provided");}
+    // ########## CONTROL SECTION ##########
+    if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized"); return ERR;}
+    if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified"); return ERR;}
+    if(!usr_id) {LOG_ERR(EINVAL, "lookup: the usr id given is invalid"); return ERR;}
+    if(op<1 || op>10) {LOG_ERR(EINVAL, "lookup: invalid operation code"); return ERR;}
+    if(op==READ_F && !data_read) {LOG_ERR(EINVAL, "lookup: invalid pointer provided"); return ERR;}
+    if((op==WRITE_F || op==WRITE_F_APP) && !data_written) {LOG_ERR(EINVAL, "lookup: invalid pointer provided"); return ERR;} 
+    if((op==WRITE_F || op==WRITE_F_APP) && !bytes_written) {LOG_ERR(EINVAL, "lookup: invalid write size"); return ERR;}
 
+    // ########## USEFUL DECLARATIONS ##########
     int temperr;    // used for error codes
     short res=PROBING;    // termination condition (in case you don't like break;)
     conc_hash_table* ht=cache->ht;      // shortcut to the hashtable
     file* temp_file=NULL;       // auxiliary pointer
 
 
+    // ########## MAIN OPERATION ##########
     // getting the starting index for the lookup operation
     unsigned int idx=conc_hash_hashfun((file_name), (ht->size));
     while(res==PROBING) {
@@ -319,7 +328,7 @@ static int read_file(file* file_to_read, byte** data_read, int* usr_id) {
     // file was opened by the user
     if(file_to_read->file_size) {   // if the file has any data, copies it into the buffer passed, allocating it first
         (*data_read)=(byte*)malloc((file_to_read->file_size)*sizeof(byte));
-        if(!data_read) return ERR;  // fatal error, errno already set by the call
+        if(!(*data_read)) return ERR;  // fatal error, errno already set by the call
 
         // copying data from file to buffer
         // TODO cambiare con la versione DECOMPRESSA
@@ -445,3 +454,137 @@ static int int_ptr_cmp(const void* x, const void* y) {
     else if((*(int*)x)>(*(int*)y)) return 1;    // x>y
     else return -1;      // x<y
 }
+
+
+
+
+
+
+
+/*
+void rand_str(char *dest, size_t length) {
+    char charset[] = "0123456789"
+                     "abcdefghijklmnopqrstuvwxyz"
+                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    while (length-- > 0) {
+        size_t index = (double) rand() / RAND_MAX * (sizeof charset - 1);
+        *dest++ = charset[index];
+    }
+    *dest = '\0';
+}
+
+void* pushfun(void* arg) {
+    sc_cache* cache=(sc_cache*)arg;
+    int i;
+    printf("Thread %d starting\n", (gettid()));
+    for(i=0; i<50; i++) {
+        byte* num=(byte*)malloc(sizeof(byte));
+        *num=i;
+        file** replaced_files;
+        file* file=lru_cache_build_file(strings[i], i+1, num, 0, 0, 0);
+        sc_cache_insert(cache, file, &replaced_files);
+        printf("Thread %d pushed\n", (gettid()));
+    }
+
+    return (void*) NULL;
+}
+
+void* popfun(void* arg) {
+    sc_cache* cache=(sc_cache*)arg;
+    int i;
+    file* file;
+    printf("Thread popper %d starting\n", (gettid()));
+    for(i=0; i<50; i++) {
+        file=sc_lookup(cache, file, RM_F, &i, NULL, NULL, 0);
+        if(file)printf("Thread %d popped file '%s'\n", (gettid()), file->name);
+    }
+
+    return (void*)NULL;
+}
+
+void* lookupfun(void* arg) {
+    lru_cache* cache=(lru_cache*)arg;
+    int i;
+    file* file;
+    printf("Thread looker %d starting\n", (gettid()));
+    for(i=0; i<50; i++) {
+        file=lru_cache_lookup(cache, strings[i]);
+        if(file) printf("#################### I got file: '%s'\n", (file->name));
+    }
+
+    return (void*)NULL;
+}
+
+void* removefun(void* arg) {
+    lru_cache* cache=(lru_cache*)arg;
+    int i;
+    file* file;
+    printf("Thread remover %d starting\n", (gettid()));
+    for(i=0; i<50; i++) {
+        file=lru_cache_remove(cache, strings[i]);
+        if(file) printf("#################### I got file: '%s'\n", (file->name));
+    }
+
+    return (void*)NULL;
+}
+
+int main() {
+    lru_cache* cache=lru_cache_create(500, 10000);
+    if(!cache) return -1;
+    pthread_t* tid_arr=(pthread_t*)malloc(20*sizeof(pthread_t));
+    if(!tid_arr) return -1;
+    int i;
+
+    strings=(char**)malloc(50*sizeof(char*));
+    for(i=0; i<50; i++) {
+        char str[] = { [41] = '\1' }; // make the last character non-zero so we can test based on it later
+        rand_str(str, sizeof str - 1);
+        strings[i]=(char*)malloc(255*sizeof(char));
+        strcpy(strings[i], str);
+    }
+
+
+    for(i=0; i<20; i++) {
+        if((i%2)==0) {
+            pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
+            printf("Spawned thread PUSHER %d\n", i);
+        }
+        else {
+            pthread_create(&(tid_arr[i]), NULL, lookupfun, (void*)cache);
+            printf("Spawned thread POPPER %d\n", i);
+        }
+    }
+
+    for(i=0; i<20; i++) {
+        pthread_join(tid_arr[i], NULL);
+        printf("Joined thread %d\n", i);
+    }
+    
+
+    for(i=0; i<10; i++) {
+        pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
+        printf("Spawned thread PUSHER %d\n", i);
+    }
+
+    for(i=0; i<10; i++) {
+        pthread_join(tid_arr[i], NULL);
+        printf("Joined thread PUSHER %d\n", i);
+    }
+
+    for(i=0; i<10; i++) {
+        pthread_create(&(tid_arr[i]), NULL, removefun, (void*)cache);
+        printf("Spawned thread REMOVER %d\n", i);
+    }
+
+    for(i=0; i<10; i++) {
+        pthread_join(tid_arr[i], NULL);
+        printf("Joined thread REMOVER %d\n", i);
+    }
+
+
+    printf("#files: %d\t#bytes: %d\n", cache->curr_file_number, cache->curr_byte_size);
+
+    return 0;
+}
+*/

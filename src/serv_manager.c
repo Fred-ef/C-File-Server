@@ -3,9 +3,9 @@
 thread_pool_cap=0;      // Indicates the maximum number of worker-threads the server can manage at the same time
 sock_addr=NULL;       // will hold the server's main socket address
 requests_queue=NULL;    // the queue worker-threads will use to dispatch client's requests TODO cambiare tipo
-// ARRAY DI THREADS WORKER
-// THREAD CLEANER
-// THREAD LOGGER
+worker_threads_arr;      // array of worker threads
+cleaner_thread;       // cleaner thread, handling file closing and lock-unlocking, should a client crash
+logger_thread;        // logger thread, handling statistics/information logging
 
 volatile __sig_atomic_t soft_close=0;     // communicates the threads to finish all the remaining work and shut down
 volatile __sig_atomic_t hard_close=0;     // communicates the threads to finish only the current request and shut down

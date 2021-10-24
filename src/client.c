@@ -3,6 +3,18 @@
 
 // TODO:    aggiungere punti di stampa per il flag -p
 
+f_flag=0;      // used in order not to duplicate the -f command
+p_flag=0;      // used in order not to duplicate the -p command
+D_flag=0;      // used in order  to couple -D with -w or -W
+d_flag=0;      // used in order  to couple -d with -r or -R
+t_flag=0;      // used in order to temporally distantiate consecutive requests
+sleep_time=0;      // used to set a sleep between consecutive requests
+conn_timeout=10;    // used to set a time-out to connection attempts
+conn_delay=500;      // used to set a time margin between consecutive connection attempts
+save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
+miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
+
+
 static int parse_command(char**);       // parses the command line, executing requests one by one
 static void print_help();       // prints a comprehensive command list
 static int is_command(char*);       // tells whether a given token is a command

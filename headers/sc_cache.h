@@ -11,7 +11,7 @@
 
 typedef enum {PROBING=-2, FOUND=0} search_result;
 
-byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
+byte nth_chance;      // indicates the "chance" order of the algorithm (2 for second chance)
 
 // defining the "second chance cache" structure
 typedef struct sc_cache {

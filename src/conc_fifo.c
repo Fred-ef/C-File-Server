@@ -105,12 +105,12 @@ int fifo_dealloc_full(conc_queue* queue) {
     if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized list
 
     int temperr;
+    void* tempres;
     
     if(!((queue->head)->next)) {        // For an empty list, deallocating its head node and pointer suffices
-        temperr=pthread_mutex_destroy(&((queue->head)->node_mtx));
-        if(temperr) {errno=temperr; return ERR;}
-        if(queue->head) free(queue->head);
-        if(queue) free(queue);
+        if(!(tempres=conc_node_destroy(queue->head))) {return ERR;}     // errno already set by the call
+        free(tempres);
+        free(queue);        // NULL controls above
         return SUCCESS;
     }
 
@@ -118,10 +118,8 @@ int fifo_dealloc_full(conc_queue* queue) {
     while(aux1!=NULL) {
         aux2=aux1;
         aux1=aux1->next;
-        temperr=pthread_mutex_destroy(&((aux2)->node_mtx));
-        if(temperr) {errno=temperr; return ERR;}
-        if((aux2)->data) free((aux2)->data);
-        if(aux2) free(aux2);
+        if(!(tempres=conc_node_destroy(aux2))) {return ERR;}     // errno already set by the call
+        free(tempres);
     }
 
     if(queue) free(queue);

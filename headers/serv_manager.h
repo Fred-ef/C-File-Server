@@ -16,9 +16,9 @@
 unsigned short thread_pool_cap;      // Indicates the maximum number of worker-threads the server can manage at the same time
 char* sock_addr=NULL;       // will hold the server's main socket address
 conc_queue* requests_queue;        // the queue worker-threads will use to dispatch client's requests TODO cambiare tipo
-// ARRAY DI THREADS WORKER
-// THREAD CLEANER
-// THREAD LOGGER
+pthread_t* worker_threads_arr;      // array of worker threads
+pthread_t cleaner_thread;       // cleaner thread, handling file closing and lock-unlocking, should a client crash
+pthread_t logger_thread;        // logger thread, handling statistics/information logging
 
 volatile __sig_atomic_t soft_close;     // communicates the threads to finish all the remaining work and shut down
 volatile __sig_atomic_t hard_close;     // communicates the threads to finish only the current request and shut down
