@@ -1,8 +1,19 @@
 #include "sc_cache.h"
 
-// TODO -   gestire duplicati e controllare se is_duplicate può ritornare soltanto TRUE o FALSE
-// TODO -   de-allocare il file quando l'inserimento fallisce
+static int open_file(file* file, int* usr_id);
+static int read_file(file* file_to_read, byte** data_read, int* usr_id);
+static int lock_file(file* file, int* usr_id);
+static int unlock_file(file* file, int* usr_id);
+static int remove_file(file* file, int* usr_id);
+static int close_file(file* file, int* usr_id);
+static int write_file(file* file, byte* data_written, unsigned bytes_written, int* usr_id);
+static int write_append(file* file, byte* data_written, unsigned bytes_written, int* usr_id);
+static int is_duplicate(file* file1, file* file2);
+static int int_ptr_cmp(const void* x, const void* y);
+
+// TODO -   aggiornare spazio cache nelle write
 // TODO -   de-allocare lo spazio quando la modifica fallisce
+// TODO -   RISOLVERE IL PROBLEMA DEL CAST INT->VOID POINTER!!!
 
 
 sc_cache* sc_cache_create(int max_file_number, int max_byte_size) {
@@ -109,9 +120,9 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
 
 
     // if the insertion failed, return an error
-    if(res!=FOUND) goto cleanup_insert;     // TODO deallocare la memoria
+    if(res!=FOUND) goto cleanup_insert;
     LOG_DEBUG("INSERTED IN LIST\n");       // TODO REMOVE
-    return SUCCESS;
+    return res;     // returns the insert operation's result
 
 // CLEANUP SECTION
 cleanup_insert:
@@ -195,7 +206,7 @@ cleanup_alg:
 }
 
 
-int sc_lookup(sc_cache* cache, char* file_name, op_code op, short usr_id, byte** data_read, byte* data_written, unsigned bytes_written) {
+int sc_lookup(sc_cache* cache, char* file_name, op_code op, int* usr_id, byte** data_read, byte* data_written, unsigned bytes_written) {
     if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized");}
     if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified");}
     if(op==READ_F && !data_read) {LOG_ERR(EINVAL, "lookup: invalid pointer provided");}
@@ -218,7 +229,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, short usr_id, byte**
         if(((ht->table)[idx]).entry==NULL) res=ENOENT;
 
         // if there's a match, perform the correct operation base on the op_code
-        else if(!strcmp(file_name, ((file*)ht->table[idx].entry)->file_size)) {
+        else if(!strcmp(file_name, ((file*)ht->table[idx].entry)->name)) {
             temp_file=(file*)ht->table[idx].entry;  // shortcut to current file
             ht->table[idx].r_used=1;    // since the file has just been referred, update its used-bit
 
@@ -226,7 +237,6 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, short usr_id, byte**
             if(op==OPEN_F) {    // opens the file if it's not locked
                 res=open_file(temp_file, usr_id);
                 if(res==ERR) {LOG_ERR(errno, "lookup: opening file"); return ERR;}   // a fatal error (memerr/mutexerr) has occurred
-                
             }
 
             else if(op==OPEN_C_F) res=ENOENT;    // checking this means the file already exists, so return error
@@ -238,7 +248,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, short usr_id, byte**
             }
 
             else if(op==WRITE_F) {  // if last operation on the file was create&lock, writes the file's content
-                res=write_file(temperr, data_written, bytes_written, usr_id);
+                res=write_file(temp_file, data_written, bytes_written, usr_id);
                 if(res==ERR) {LOG_ERR(errno, "lookup: writing file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
             }
 
@@ -279,10 +289,14 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, short usr_id, byte**
 
 
 // helper function: opens the file for the user; if it was already opened, returns successfully
-static int open_file(file* file, short usr_id) {
+static int open_file(file* file, int* usr_id) {
     int temperr;
 
-    if((temperr=ll_insert_head(file->open_queue, (void*)usr_id))==ERR)  // insert usr_id in the file_open list
+    int* real_id=(int*)malloc(sizeof(int));
+    if(!real_id) return ERR;    // fatal error, errno alreadyset by the call
+    *real_id=*usr_id;
+
+    if((temperr=ll_insert_head(file->open_list, (void*)real_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
     return ERR;   // fatal error, errno already set by the call
 
     return SUCCESS;
@@ -290,12 +304,12 @@ static int open_file(file* file, short usr_id) {
 
 
 // helper function: returns a copy of the file's data if previously opened
-static int read_file(file* file_to_read, byte** data_read, short usr_id) {
+static int read_file(file* file_to_read, byte** data_read, int* usr_id) {
     int i;  // index for loop
     int res;
 
-    if(file_to_read->f_lock && (file_to_read->f_lock)!=usr_id) return EBUSY;    // if file is locked by another user, return error
-    res=ll_search(file_to_read->open_queue, (void*)usr_id);     // checking if the file has been opened by the user
+    if(file_to_read->f_lock && (file_to_read->f_lock)!=(*usr_id)) return EBUSY;    // if file is locked by another user, return error
+    res=ll_search(file_to_read->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
@@ -315,24 +329,24 @@ static int read_file(file* file_to_read, byte** data_read, short usr_id) {
 
 
 // helper function: if file is unlocked, locks the file; if user has the lock, returns successfully
-static int lock_file(file* file, short usr_id) {
+static int lock_file(file* file, int* usr_id) {
     int res;
 
-    if(file->f_lock && (file->f_lock)!=usr_id) return EBUSY;    // lock is held by another user
-    if(file->f_lock && (file->f_lock)==usr_id) return SUCCESS;  // user already has the lock
+    if(file->f_lock && (file->f_lock)!=(*usr_id)) return EBUSY;    // lock is held by another user
+    if(file->f_lock && (file->f_lock)==(*usr_id)) return SUCCESS;  // user already has the lock
 
-    res=ll_search(file->open_queue, (void*)usr_id);     // checking if the file has been opened by the user
+    res=ll_search(file->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
-    file->f_lock=usr_id;    // locks the file for the user
+    file->f_lock=(*usr_id);    // locks the file for the user
     return SUCCESS;
 }
 
 
 // helper function: if the lock is held by the user, releases it; else, just returns successfully
-static int unlock_file(file* file, short usr_id) {
-    if(file->f_lock && (file->f_lock!=usr_id)) return SUCCESS;  // user wasn't holding any lock
+static int unlock_file(file* file, int* usr_id) {
+    if(file->f_lock && (file->f_lock!=(*usr_id))) return SUCCESS;  // user wasn't holding any lock
 
     file->f_lock=0;     // resets lock
     return SUCCESS;
@@ -340,15 +354,15 @@ static int unlock_file(file* file, short usr_id) {
 
 
 // helper function: if the user has a lock on the file, deletes it from the server
-static int remove_file(file* file, short usr_id) {
-    if(file->f_lock != usr_id) return EPERM;    // the user doesn't have a lock on the file; operation not permitted
+static int remove_file(file* file, int* usr_id) {
+    if(file->f_lock != (*usr_id)) return EPERM;    // the user doesn't have a lock on the file; operation not permitted
 
     int temperr;
 
     if(file->data) free(file->data);
     if(file->name) free(file->name);
-    if(file->open_queue) {
-        temperr=ll_dealloc_full(file->open_queue);
+    if(file->open_list) {
+        temperr=ll_dealloc_full(file->open_list);
         if(temperr==ERR) return ERR;    // fatal error, errno already set by the call
     }
     free(file);
@@ -358,11 +372,11 @@ static int remove_file(file* file, short usr_id) {
 
 
 // helper function: closes the file for the user; if it wasn't opened by the user, returns successfully
-static int close_file(file* file, short usr_id) {
+static int close_file(file* file, int* usr_id) {
     int temperr;
 
-    if(file->f_lock==usr_id) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
-    if((temperr=ll_remove(file->open_queue, (void*)usr_id))==ERR)  // insert usr_id in the file_open list
+    if(file->f_lock==(*usr_id)) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
+    if((temperr=ll_remove(file->open_list, (void*)usr_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
     return ERR;   // fatal error, errno already set by the call
 
     return SUCCESS;
@@ -370,8 +384,8 @@ static int close_file(file* file, short usr_id) {
 
 
 // helper function: writes the whole file if the last operation on it was create&lock
-static int write_file(file* file, byte* data_written, unsigned bytes_written, short usr_id) {
-    if(file->data || file->f_lock!=usr_id) return EPERM;    // last operation was not create&lock
+static int write_file(file* file, byte* data_written, unsigned bytes_written, int* usr_id) {
+    if(file->data || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
 
@@ -388,13 +402,13 @@ static int write_file(file* file, byte* data_written, unsigned bytes_written, sh
 
 
 // helper function: writes the data passed as arg in append mode
-static int write_append(file* file, byte* data_written, unsigned bytes_written, short usr_id) {
-    if(file->f_lock && (file->f_lock)!=usr_id) return EPERM;    // another user has a lock on this file
+static int write_append(file* file, byte* data_written, unsigned bytes_written, int* usr_id) {
+    if(file->f_lock && (file->f_lock)!=(*usr_id)) return EPERM;    // another user has a lock on this file
 
     int i=0, j;  // for loop index
     int res;
 
-    res=ll_search(file->open_queue, (void*)usr_id);     // checking if the file has been opened by the user
+    res=ll_search(file->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
@@ -419,4 +433,12 @@ static int is_duplicate(file* file1, file* file2) {
     // NULL checks already done in the insert procedure
     if(!strcmp(file1->name, file2->name)) return TRUE;
     else return FALSE;
+}
+
+
+// helper function: compares two void pointers as integers
+static int int_ptr_cmp(const void* x, const void* y) {
+    if((*(int*)x)==(*(int*)y)) return 0;    // x=y
+    else if((*(int*)x)>(*(int*)y)) return 1;    // x>y
+    else return -1;      // x<y
 }
