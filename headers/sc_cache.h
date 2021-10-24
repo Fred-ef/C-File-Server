@@ -35,9 +35,6 @@ typedef struct file {
     llist* open_list;     // holds a list of the users by which the file is currenlty opened
 } file;
 
-// CACHE GLOBAL VARIABLE
-sc_cache* server_cache;     // acts as the server's main (and only) cache
-
 
 // MAIN OPERATIONS
 sc_cache* sc_cache_create(int, int);                // returns an empty sc-cache data structure of capacity and size(bytes) given

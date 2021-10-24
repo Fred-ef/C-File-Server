@@ -35,6 +35,8 @@ int main(int argc, char* argv[]) {
     }
 
     
+    if(save_dir) free(save_dir);
+    if(miss_dir) free(miss_dir);
     return SUCCESS;         // successful termination
 }
 
@@ -601,6 +603,7 @@ static int visit_folder(DIR* dir_obj, int rem_files) {
     if((getcwd(file_name, FILE_PATH_MAX))==NULL) {
         perror("-w - getting dir path");
         free(file_name);
+        return ERR;
     }
     // completing current dir path with '/' symbol
     strncat(file_name, "/", (FILE_PATH_MAX-strlen(file_name)-1));
@@ -638,7 +641,7 @@ static int visit_folder(DIR* dir_obj, int rem_files) {
         }
         // if it's a file, send it to the file-server as a new-file
         else if(curr_file->d_type==DT_REG) {
-            if((temperr=openFile(file_name, O_CREATE))==ERR) {
+            if((temperr=openFile(file_name, O_CREATE|O_LOCK))==ERR) {
                 perror("-w - could not send all files");
                 free(file_name);
                 return ERR;

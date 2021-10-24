@@ -13,7 +13,10 @@ static int int_ptr_cmp(const void* x, const void* y);
 
 // TODO -   aggiornare spazio cache nelle write
 // TODO -   de-allocare lo spazio quando la modifica fallisce
-// TODO -   RISOLVERE IL PROBLEMA DEL CAST INT->VOID POINTER!!!
+// TODO -   controllare che si liberi la cache
+// TODO -   controllare che si liberino le code di file aperti
+// TODO -   controllare che si liberi la copia dei file letti
+// TODO -   aggiungere cleanup per pulire l'intera cache dai file
 
 
 sc_cache* sc_cache_create(int max_file_number, int max_byte_size) {

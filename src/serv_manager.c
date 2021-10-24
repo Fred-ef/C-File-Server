@@ -2,8 +2,13 @@
 
 thread_pool_cap=0;      // Indicates the maximum number of worker-threads the server can manage at the same time
 sock_addr=NULL;       // will hold the server's main socket address
-requests_queue=NULL;
-requests_queue_mtx=PTHREAD_MUTEX_INITIALIZER;     // Serves as a mutual exclusion mutex for worker-threads to access the requests queue
+requests_queue=NULL;    // the queue worker-threads will use to dispatch client's requests TODO cambiare tipo
+// ARRAY DI THREADS WORKER
+// THREAD CLEANER
+// THREAD LOGGER
+
+volatile __sig_atomic_t soft_close=0;     // communicates the threads to finish all the remaining work and shut down
+volatile __sig_atomic_t hard_close=0;     // communicates the threads to finish only the current request and shut down
 
 
 int main(int argc, char* argv[]) {
