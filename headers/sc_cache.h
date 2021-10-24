@@ -6,9 +6,12 @@
 #include "conc_elem.h"
 #include "conc_hash.h"
 #include "conc_fifo.h"
+#include "linkedlist.h"
 #include "client_server_comm.h"
 
-typedef enum {NOT_FOUND=0, FOUND, FAILED} search_result;
+typedef enum {PROBING=-2, FOUND=0} search_result;
+
+sc_cache* server_cache;     // acts as the server's main (and only) cache
 
 byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
 
@@ -31,8 +34,7 @@ typedef struct file {
     byte f_lock;     // flag indicating if and by whom the file is currently locked
     byte f_open;     // flag indicating if the file is currently open
     byte f_write;    // flag indicating if the writeFile operation can be executed
-    // LOCK QUEUE
-    // OPEN LIST
+    conc_queue* open_queue;     // holds a list of the users by which the file is currenlty opened
 } file;
 
 
@@ -40,6 +42,6 @@ typedef struct file {
 sc_cache* sc_cache_create(int, int);                // returns an empty sc-cache data structure of capacity and size(bytes) given
 int sc_cache_insert(sc_cache*, file*, file***);      // pushes a file in the cache, as a "recently used" file, getting the expelled files
 int sc_algorithm(sc_cache*, unsigned, file***, bool);         // second chance replacement algorithm
-int sc_lookup(sc_cache*, char*, op_code, file**, file*);      // executes the request specified in the operation code
+int sc_lookup(sc_cache*, char*, op_code, short, byte**, byte*, unsigned);      // executes the request specified in the operation code
 
 #endif // sc_cache_h

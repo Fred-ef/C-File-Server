@@ -1,6 +1,6 @@
 #include "sc_cache.h"
 
-// TODO -   gestire duplicati
+// TODO -   gestire duplicati e controllare se is_duplicate può ritornare soltanto TRUE o FALSE
 // TODO -   de-allocare il file quando l'inserimento fallisce
 // TODO -   de-allocare lo spazio quando la modifica fallisce
 
@@ -42,7 +42,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
     if(!(cache->ht)) {LOG_ERR(EINVAL, "insert: cache's hashtable not initialized");}
 
     int temperr;    // used for error codes
-    search_result res=NOT_FOUND;    // termination condition
+    short res=PROBING;    // termination condition
     conc_hash_table* ht=cache->ht;      // shortcut to the hashtable
 
 
@@ -76,7 +76,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
     
     // getting the starting index for our file
     unsigned int idx=conc_hash_hashfun((new_file->name), (ht->size));
-    while(res==NOT_FOUND) {       // finding a free entry for the file
+    while(res==PROBING) {       // finding a free entry for the file
         // locking the hashtable entry
         temperr=pthread_mutex_lock(&(((ht->table)[idx]).entry_mtx));
         if(temperr) {LOG_ERR(temperr, "insert: locking hashtable's entry"); return ERR;}
@@ -96,7 +96,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
         // TODO gestire meglio, che casino (togliere unlock e metterne una alla fine)
         else if((temperr=sc_cache_is_duplicate(((ht->table)[idx]).entry, new_file))) {  // TODO implementare
             LOG_DEBUG("THREAD: %d\tKEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
-            res=FAILED; errno=EEXIST;
+            res=EEXIST;
         }
 
         // else, continue probing
@@ -109,7 +109,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
 
 
     // if the insertion failed, return an error
-    if(res==FAILED) goto cleanup_insert;     // TODO deallocare la memoria
+    if(res!=FOUND) goto cleanup_insert;     // TODO deallocare la memoria
     LOG_DEBUG("INSERTED IN LIST\n");       // TODO REMOVE
     return SUCCESS;
 
@@ -117,11 +117,12 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
 cleanup_insert:
 // de-allocating the pre-allocated memory
     temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
-    if(temperr) {LOG_ERR(temperr, "insert: locking cache's mem-mutex"); goto cleanup_insert;}
+    if(temperr) {LOG_ERR(temperr, "insert: locking cache's mem-mutex"); return ERR;}
     cache->curr_file_number--;
     cache->curr_byte_size-=new_file->file_size;
     temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
-    if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); goto cleanup_insert;}
+    if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
+    errno=res;
     return ERR;
 }
 
@@ -194,39 +195,74 @@ cleanup_alg:
 }
 
 
-int sc_lookup(sc_cache* cache, char* file_name, op_code op, file** file_read, file* file_to_write) {
+int sc_lookup(sc_cache* cache, char* file_name, op_code op, short usr_id, byte** data_read, byte* data_written, unsigned bytes_written) {
     if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized");}
     if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified");}
-    if(op==READ_F && !file_read) {LOG_ERR(EINVAL, "lookup: invalid pointer provided");}
-    if((op==WRITE_F || op==WRITE_F_APP) && !file_to_write) {LOG_ERR(EINVAL, "lookup: invalid pointer provided");}
+    if(op==READ_F && !data_read) {LOG_ERR(EINVAL, "lookup: invalid pointer provided");}
+    if((op==WRITE_F || op==WRITE_F_APP) && !data_written) {LOG_ERR(EINVAL, "lookup: invalid pointer provided");}
 
     int temperr;    // used for error codes
-    search_result res=0;    // termination condition (in case you don't like break;)
+    short res=PROBING;    // termination condition (in case you don't like break;)
     conc_hash_table* ht=cache->ht;      // shortcut to the hashtable
+    file* temp_file=NULL;       // auxiliary pointer
 
 
     // getting the starting index for the lookup operation
     unsigned int idx=conc_hash_hashfun((file_name), (ht->size));
-    while(res==NOT_FOUND) {
+    while(res==PROBING) {
         // locking the hashtable entry
         temperr=pthread_mutex_lock(&(((ht->table)[idx]).entry_mtx));
         if(temperr) {LOG_ERR(temperr, "lookup: locking hashtable's entry"); return ERR;}
 
         // if the entry is NULL, the element is not in the hashtable
-        if(((ht->table)[idx]).entry==NULL) {errno=ENOENT; res=FAILED;}
+        if(((ht->table)[idx]).entry==NULL) res=ENOENT;
 
         // if there's a match, perform the correct operation base on the op_code
         else if(!strcmp(file_name, ((file*)ht->table[idx].entry)->file_size)) {
-            // CHIAMATA ALLA FUNZIONE DESIDERATA
-            // RICORDARE DI AGGIORNARE LO USED BIT
-            if(op==OPEN_F) {}
-            else if(op==OPEN_C_F) {}
-            else if(op==READ_F) {}
-            else if(op==WRITE_F) {}
-            else if(op==LOCK_F) {}
-            else if(op==UNLOCK_F) {}
-            else if(op==RM_F) {}
-            else if(op==CLOSE_F) {}
+            temp_file=(file*)ht->table[idx].entry;  // shortcut to current file
+            ht->table[idx].r_used=1;    // since the file has just been referred, update its used-bit
+
+            // Calls a different function based on the operation flag
+            if(op==OPEN_F) {    // opens the file if it's not locked
+                res=open_file(temp_file, usr_id);
+                if(res==ERR) {LOG_ERR(errno, "lookup: opening file"); return ERR;}   // a fatal error (memerr/mutexerr) has occurred
+                
+            }
+
+            else if(op==OPEN_C_F) res=ENOENT;    // checking this means the file already exists, so return error
+
+            else if(op==READ_F) {   // if file open returns its data, else returns error
+                res=read_file(temp_file, data_read, usr_id);
+                if(res==ERR) {LOG_ERR(errno, "lookup: reading file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
+                ht->table[idx].entry=ht->mark;  // the item has been deleted, so mark it as deleted
+            }
+
+            else if(op==WRITE_F) {  // if last operation on the file was create&lock, writes the file's content
+                res=write_file(temperr, data_written, bytes_written, usr_id);
+                if(res==ERR) {LOG_ERR(errno, "lookup: writing file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
+            }
+
+            else if(op==WRITE_F_APP) {  // if the file isn't locked by another user, writes data in append
+                res=write_append(temp_file, data_written, bytes_written, usr_id);
+                if(res==ERR) {LOG_ERR(errno, "lookup: writing file in append"); return ERR;}    // a fatal error (memerr/mutexerr) has occurred
+            }
+
+            else if(op==LOCK_F) {   // attempts to lock the file
+                res=lock_file(temp_file, usr_id);   // if file is unlocked, locks it
+                if(res==ERR) {LOG_ERR(errno, "lookup: locking file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
+            }
+
+            else if(op==UNLOCK_F) res=unlock_file(temp_file, usr_id);    // if file is locked by the user, unlocks it
+            
+            else if(op==RM_F) {     // if the file is locked by the user, deletes it from the cache
+                res=remove_file(temp_file, usr_id);        // if file is locked by the user, deletes it
+                if(res==ERR) {LOG_ERR(errno, "lookup: removing file"); return ERR;} // a fatal error (memerr/mutexerr) has occurred
+            }
+
+            else if(op==CLOSE_F) {  // closes the file for the user
+                res=close_file(temp_file, usr_id);     // closes file for the user
+                if(res==ERR) {LOG_ERR(errno, "lookup: closing file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
+            }
         }
         
         // else, continue probing
@@ -238,12 +274,141 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, file** file_read, fi
     }
 
 
-    // if the operation hasn't been completed successfully, return an error
-    if(res==FAILED) return ERR;
+    return res;     // returns the result of the operation performed
+}
+
+
+// helper function: opens the file for the user; if it was already opened, returns successfully
+static int open_file(file* file, short usr_id) {
+    int temperr;
+
+    if((temperr=ll_insert_head(file->open_queue, (void*)usr_id))==ERR)  // insert usr_id in the file_open list
+    return ERR;   // fatal error, errno already set by the call
 
     return SUCCESS;
+}
 
-// CLEANUP SECTION
-cleanup_lookup:
-    return ERR;
+
+// helper function: returns a copy of the file's data if previously opened
+static int read_file(file* file_to_read, byte** data_read, short usr_id) {
+    int i;  // index for loop
+    int res;
+
+    if(file_to_read->f_lock && (file_to_read->f_lock)!=usr_id) return EBUSY;    // if file is locked by another user, return error
+    res=ll_search(file_to_read->open_queue, (void*)usr_id);     // checking if the file has been opened by the user
+    if(!res) return EPERM;      // file not opened: operation not permitted
+    if(res==ERR) return ERR;    // fatal error, errno already set by the call
+
+    // file was opened by the user
+    if(file_to_read->file_size) {   // if the file has any data, copies it into the buffer passed, allocating it first
+        (*data_read)=(byte*)malloc((file_to_read->file_size)*sizeof(byte));
+        if(!data_read) return ERR;  // fatal error, errno already set by the call
+
+        // copying data from file to buffer
+        // TODO cambiare con la versione DECOMPRESSA
+        for(i=0; i<(file_to_read->file_size); i++) (*data_read)[i]=(file_to_read->data)[i];
+    }
+    else (*data_read)=NULL;     // file was empty
+
+    return SUCCESS;
+}
+
+
+// helper function: if file is unlocked, locks the file; if user has the lock, returns successfully
+static int lock_file(file* file, short usr_id) {
+    int res;
+
+    if(file->f_lock && (file->f_lock)!=usr_id) return EBUSY;    // lock is held by another user
+    if(file->f_lock && (file->f_lock)==usr_id) return SUCCESS;  // user already has the lock
+
+    res=ll_search(file->open_queue, (void*)usr_id);     // checking if the file has been opened by the user
+    if(!res) return EPERM;      // file not opened: operation not permitted
+    if(res==ERR) return ERR;    // fatal error, errno already set by the call
+
+    file->f_lock=usr_id;    // locks the file for the user
+    return SUCCESS;
+}
+
+
+// helper function: if the lock is held by the user, releases it; else, just returns successfully
+static int unlock_file(file* file, short usr_id) {
+    if(file->f_lock && (file->f_lock!=usr_id)) return SUCCESS;  // user wasn't holding any lock
+
+    file->f_lock=0;     // resets lock
+    return SUCCESS;
+}
+
+
+// helper function: if the user has a lock on the file, deletes it from the server
+static int remove_file(file* file, short usr_id) {
+    if(file->f_lock != usr_id) return EPERM;    // the user doesn't have a lock on the file; operation not permitted
+
+    int temperr;
+
+    if(file->data) free(file->data);
+    if(file->name) free(file->name);
+    if(file->open_queue) {
+        temperr=ll_dealloc_full(file->open_queue);
+        if(temperr==ERR) return ERR;    // fatal error, errno already set by the call
+    }
+    free(file);
+
+    return SUCCESS;
+}
+
+
+// helper function: closes the file for the user; if it wasn't opened by the user, returns successfully
+static int close_file(file* file, short usr_id) {
+    int temperr;
+
+    if(file->f_lock==usr_id) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
+    if((temperr=ll_remove(file->open_queue, (void*)usr_id))==ERR)  // insert usr_id in the file_open list
+    return ERR;   // fatal error, errno already set by the call
+
+    return SUCCESS;
+}
+
+
+// helper function: writes the whole file if the last operation on it was create&lock
+static int write_file(file* file, byte* data_written, unsigned bytes_written, short usr_id) {
+    if(file->data || file->f_lock!=usr_id) return EPERM;    // last operation was not create&lock
+
+    int i;  // for loop index
+
+    file->data=(byte*)malloc(bytes_written*sizeof(byte));
+    if(!file->data) {LOG_ERR(errno, "writing file: memerr"); return ERR;}
+    file->file_size=bytes_written;  // updating file size
+
+    for(i=0; i<bytes_written; i++) {    // writing data into the file
+        (file->data)[i] = data_written[i];      // TODO CAMBIARE CON LA COMPRESSIONE
+    }
+
+    return SUCCESS;
+}
+
+
+// helper function: writes the data passed as arg in append mode
+static int write_append(file* file, byte* data_written, unsigned bytes_written, short usr_id) {
+    if(file->f_lock && (file->f_lock)!=usr_id) return EPERM;    // another user has a lock on this file
+
+    int i=0, j;  // for loop index
+    int res;
+
+    res=ll_search(file->open_queue, (void*)usr_id);     // checking if the file has been opened by the user
+    if(!res) return EPERM;      // file not opened: operation not permitted
+    if(res==ERR) return ERR;    // fatal error, errno already set by the call
+
+    unsigned write_size=file->file_size+bytes_written;
+    byte* updated_data=(byte*)malloc(write_size*sizeof(byte));
+    if(!updated_data) return ERR;   // fatal error, errno already set by the call
+
+    // if the file already has some data in it, copy it to the updated version
+    if(file->file_size) for(i=0; i<(file->file_size); i++) updated_data[i]=(file->data)[i];
+    for(j=0; i<write_size && j<bytes_written; i++, j++) updated_data[i]=data_written[j];
+
+    if(file->data) free(file->data);    // destroying old data
+    file->data=updated_data;    // updating file's data
+    file->file_size=write_size;     // updating file's size
+
+    return SUCCESS;
 }
