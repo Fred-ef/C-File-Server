@@ -11,6 +11,7 @@
 #define S_TO_NS_CONV 1000000000   // Conversion rate of seconds to nanoseconds and viceversa
 #define UNIX_PATH_MAX 108       // Max dimension of a Unix socket address
 #define FILE_PATH_MAX 255       // Max length of a file/dir path
+#define MB_TO_BYTES 1000000     // conversion rate of bytes to megabytes and viceversa
 
 #define MS_TO_NS(a) a*MS_TO_NS_CONV
 #define NS_TO_MS(a) a/MS_TO_NS_CONV

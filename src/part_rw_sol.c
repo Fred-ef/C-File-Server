@@ -10,7 +10,7 @@ int readn(int source, void* buf, int toread) {
       if(bleft==toread) return ERR;     // If nothing has been read, return the error state
       else break;     // If the error happened during the stream of data, return the number of bytes read
     }
-    else if(bread==0) break;
+    else if(bread==0) break;  // read operation completed
     bleft-=bread;   // Updates the number of bytes left (subtracting those just read)
     buf+=bread;   // Updates the current position of buffer pointer
   }
@@ -27,7 +27,7 @@ int writen(int source, void* buf, int towrite) {
       if(bleft==towrite) return ERR;    // If nothing has been written, return the error state
       else break;   // If the interruption happened during the stream of data, return the number of bytes written
     }
-    else if (bwritten==0) break;
+    else if (bwritten==0) break;  // write operation completed
     bleft-=bwritten;    // Updates the number of bytes left (subtracting those just written)
     buf+=bwritten;    // Updates the current position of buffer pointer
   }

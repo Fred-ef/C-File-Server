@@ -6,7 +6,9 @@
 #include "conc_elem.h"
 
 typedef struct conc_queue {
-    conc_node head;
+    conc_node head;     // pointer to the actual queue
+    pthread_mutex_t queue_mtx;      // mutex to implement coarse-grained locking
+    pthread_cond_t queue_cv;        // cond var to let threads wait on conditions related to the queue (to use with coarse-grained locking)
 } conc_queue;
 
 conc_queue* conc_fifo_create(void*);      // Creates and returns an empty concurrent queue, with arg as head's data

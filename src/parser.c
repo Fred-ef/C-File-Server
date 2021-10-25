@@ -12,6 +12,7 @@ int parse(char* path, char* key, unsigned short* dest) {
   }
 
   sstat* fileStat=(sstat*)malloc(sizeof(sstat));     // Definition of stat struct to retrieve info from the config file
+  if(!fileStat) return ERR;   // errno already set by the call
   if((tempErr=fstat(source, fileStat))==ERR) {     // Retrieving info from the config file into fileStat + elementary error handling
     perror("Retrieving config file's stats: ");
     cleanup_f(source, fileStat, NULL);
@@ -20,6 +21,7 @@ int parse(char* path, char* key, unsigned short* dest) {
   int fileSize=(int)fileStat->st_size;     // Saving the config file's length, expressed in bytes, plus an overhead, in the fileSize var
 
   char* buffer=(char*)malloc((fileSize)*sizeof(char));
+  if(!buffer) return ERR;   // errno already set by the call
   if((tempErr=readn(source, buffer, fileSize))==ERR) {     // Uses the safe version of the read SC to read the config file and puts it in the buffer + elementary error handling
     perror("Reading from config file: ");
     cleanup_f(source, fileStat, buffer, NULL);
@@ -74,6 +76,7 @@ int parse_s(char* path, char* key, char** dest) {
   }
 
   sstat* fileStat=(sstat*)malloc(sizeof(sstat));     // Definition of stat struct to retrieve info from the config file
+  if(!fileStat) return ERR;   // errno already set by the call
   if((tempErr=fstat(source, fileStat))==ERR) {     // Retrieving info from the config file into fileStat + elementary error handling
     perror("Retrieving config file's stats: ");
     cleanup_f(source, fileStat, NULL);
@@ -82,6 +85,7 @@ int parse_s(char* path, char* key, char** dest) {
   int fileSize=(int)fileStat->st_size;     // Saving the config file's length, expressed in bytes, plus an overhead, in the fileSize var
 
   char* buffer=(char*)malloc((fileSize)*sizeof(char));
+  if(!buffer) return ERR;   // errno already set by the call
   if((tempErr=readn(source, buffer, fileSize))==ERR) {     // Uses the safe version of the read SC to read the config file and puts it in the buffer + elementary error handling
     perror("Reading from config file: ");
     cleanup_f(source, fileStat, buffer, NULL);

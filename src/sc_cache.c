@@ -1,6 +1,6 @@
 #include "sc_cache.h"
 
-nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
+byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
 
 static int open_file(file* file, int* usr_id);
 static int read_file(file* file_to_read, byte** data_read, int* usr_id);

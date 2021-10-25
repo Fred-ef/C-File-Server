@@ -2,13 +2,21 @@
 
 
 conc_queue* conc_fifo_create(void* data) {
-  conc_queue* queue=(conc_queue*)malloc(sizeof(conc_queue));
-  if(!queue) return NULL;
+    int temperr;
 
-  queue->head=conc_node_create(data);
-  if(!(queue->head)) {free(queue); return NULL;}
+    conc_queue* queue=(conc_queue*)malloc(sizeof(conc_queue));
+    if(!queue) return NULL;
 
-  return queue;
+    temperr=pthread_mutex_init(&(queue->queue_mtx), NULL);
+    if(temperr) {errno=temperr; return NULL;}
+
+    temperr=pthread_cond_init(&(queue->queue_cv), NULL);
+    if(temperr) {errno=temperr; return NULL;}
+
+    queue->head=conc_node_create(data);
+    if(!(queue->head)) {free(queue); return NULL;}
+
+    return queue;
 }
 
 
@@ -110,7 +118,6 @@ int fifo_dealloc_full(conc_queue* queue) {
     if(!((queue->head)->next)) {        // For an empty list, deallocating its head node and pointer suffices
         if(!(tempres=conc_node_destroy(queue->head))) {return ERR;}     // errno already set by the call
         free(tempres);
-        free(queue);        // NULL controls above
         return SUCCESS;
     }
 
@@ -122,6 +129,10 @@ int fifo_dealloc_full(conc_queue* queue) {
         free(tempres);
     }
 
-    if(queue) free(queue);
+    temperr=pthread_mutex_destroy(&(queue->queue_mtx));
+    if(temperr) {errno=temperr; return ERR;}
+    temperr=pthread_cond_destroy(&(queue->queue_cv));
+    if(temperr) {errno=temperr; return ERR;}
+    free(queue);
     return SUCCESS;
 }

@@ -3,16 +3,16 @@
 
 // TODO:    aggiungere punti di stampa per il flag -p
 
-f_flag=0;      // used in order not to duplicate the -f command
-p_flag=0;      // used in order not to duplicate the -p command
-D_flag=0;      // used in order  to couple -D with -w or -W
-d_flag=0;      // used in order  to couple -d with -r or -R
-t_flag=0;      // used in order to temporally distantiate consecutive requests
-sleep_time=0;      // used to set a sleep between consecutive requests
-conn_timeout=10;    // used to set a time-out to connection attempts
-conn_delay=500;      // used to set a time margin between consecutive connection attempts
-save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
-miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
+char f_flag=0;      // used in order not to duplicate the -f command
+char p_flag=0;      // used in order not to duplicate the -p command
+byte D_flag=0;      // used in order  to couple -D with -w or -W
+byte d_flag=0;      // used in order  to couple -d with -r or -R
+byte t_flag=0;      // used in order to temporally distantiate consecutive requests
+byte sleep_time=0;      // used to set a sleep between consecutive requests
+byte conn_timeout=10;    // used to set a time-out to connection attempts
+unsigned short conn_delay=500;      // used to set a time margin between consecutive connection attempts
+char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
+char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
 
 
 static int parse_command(char**);       // parses the command line, executing requests one by one
