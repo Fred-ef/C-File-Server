@@ -60,13 +60,14 @@ void* conc_fifo_pop(conc_queue* queue) {
     if(!(queue->head)) {errno=EINVAL; return (void*)NULL;}     // Uninitialized list
 
     int temperr;
+    errno=0;
     temperr=pthread_mutex_lock(&((queue->head)->node_mtx));
     if(temperr) {errno=temperr; return (void*)NULL;}
 
     if(!((queue->head)->next)) {
         temperr=pthread_mutex_unlock(&((queue->head)->node_mtx));
         if(temperr) {errno=temperr; return (void*)NULL;}
-        errno=EINVAL;
+        
         return (void*)NULL;
     }
 

@@ -148,6 +148,7 @@ int main(int argc, char* argv[]) {
 
                   else {    // generic request by a connected client
                       int* client_fd=malloc(sizeof(int));
+                      if(!client_fd) {LOG_ERR(errno, "manager: preparing client fd"); goto cleanup_x;}
                       *client_fd=i;
 
                       if((temperr=pthread_mutex_lock(&(requests_queue->queue_mtx)))==ERR) {

@@ -8,8 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "definitions.h"
-#include "err_cleanup.h"
+#include "serv_manager.h"
 
 void* worker_func(void* arg);       // main thread function
 

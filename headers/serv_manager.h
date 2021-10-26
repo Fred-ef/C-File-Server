@@ -16,7 +16,7 @@
 #include "serv_worker.h"
 #include "sc_cache.h"
 
-#define PIPE_MSG_LEN 8
+#define PIPE_MSG_LEN sizeof(int)
 
 sc_cache* server_cache;      // the actual cache structure used by the server
 unsigned server_byte_size;      // indicates the capacity of the server in terms of bytes of memory
