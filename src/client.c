@@ -411,11 +411,11 @@ static int read_files(char* arg) {
     int temperr;
     int fd;
     int i;
-    unsigned size=0;
     char* token;
     char* saveptr;
     char* pathname=NULL;
     void* buffer=NULL;
+    size_t* size=NULL;
 
     // if file storing is enabled, copy the save_dir's path in the "pathname" var
     if(save_dir) {
@@ -469,10 +469,12 @@ static int read_files(char* arg) {
     }
 
     if(pathname) free(pathname);
+    if(size) free(size);
     return SUCCESS;
 
 // CLEANUP
 cleanup_1:
+    if(size) free(size);
     if(buffer) free(buffer);
 cleanup_2:
     if(pathname) free(pathname);

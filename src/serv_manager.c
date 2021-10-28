@@ -33,7 +33,7 @@ int main(int argc, char* argv[]) {
 
     unsigned short i;       // for loop index
     short temperr;      // memorizes error codes in syscalls
-    int int_buf;        // acts as a buffer for int-value-reads
+    int* int_buf;        // acts as a buffer for int-value-reads
     short fd_sk, fd_cl;        // file descriptor for the manager's sockets and for clients connection
     struct sockaddr_un sa;      // represents the manager's socket address
 
@@ -70,6 +70,9 @@ int main(int argc, char* argv[]) {
         goto cleanup_x;
     }
     */
+
+   int_buf=(int*)malloc(sizeof(int));   // allocating memory for the buffer used for int value reads
+   if(!int_buf) {LOG_ERR(errno, "manager: allocating int buffer"); goto cleanup_x;}
 
 
     // #################### PIPE SETUP ####################
@@ -130,20 +133,20 @@ int main(int argc, char* argv[]) {
                   }
 
                   else if(i==fd_pipe_read) {    // worker-manager communication
-                    if((temperr=readn(fd_pipe_read, &int_buf, PIPE_MSG_LEN))==ERR) {
+                    if((temperr=readn(fd_pipe_read, int_buf, PIPE_MSG_LEN))==ERR) {
                         LOG_ERR(EPIPE, "manager: reading from pipe");
                         goto cleanup_x;
                     }
                     // if manager got an invalid read
-                    if(!int_buf) {LOG_ERR(EPIPE, "manager: elaborating pipe value"); goto cleanup_x;}
+                    if(!int_buf || !(*int_buf)) {LOG_ERR(EPIPE, "manager: elaborating pipe value"); goto cleanup_x;}
                     // else elaborate the result
-                    if(int_buf<0) {     // the client disconnected
-                        int_buf*=-1;    // inverting sign to get the actual fd
-                        FD_CLR(int_buf, &curr_set);     // removing the fd from the curr fd set
+                    if(*int_buf<0) {     // the client disconnected
+                        (*int_buf)*=-1;    // inverting sign to get the actual fd
+                        FD_CLR(*int_buf, &curr_set);     // removing the fd from the curr fd set
                         close(int_buf);     // closing communication
                     }
                     // client request served
-                    else FD_SET(int_buf, &curr_set);    // reinserting the client fd in the curr fd set
+                    else FD_SET(*int_buf, &curr_set);    // reinserting the client fd in the curr fd set
                   }
 
                   else {    // generic request by a connected client
@@ -200,6 +203,7 @@ int main(int argc, char* argv[]) {
     if(server_cache) free(server_cache);
     if(sock_addr) free(sock_addr);
     if(worker_threads_arr) free(worker_threads_arr);
+    if(int_buf) free(int_buf);
     if(requests_queue) fifo_dealloc_full(requests_queue);
     exit(EXIT_SUCCESS);         // Successful termination
 

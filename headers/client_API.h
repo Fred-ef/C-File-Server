@@ -17,9 +17,11 @@
 #include "part_rw_sol.h"
 
 #define RECONNECT_TIMER 200     // time to wait between one connection attempt and another
+#define LOCK_TIMER 500      // time to wait between one lock attempt and another
+#define OP_ERR -2   // denotes non-fatal errors (client-server communication errors)
 
 extern short fd_sock;       // holds the file descriptor representing the connection to the server
-extern char* conn_addr;        // holds the address to which the clients connect in the openConnection call
+extern char* serv_sk;        // holds the address to which the clients connect in the openConnection call
 extern bool is_connected;       // set to 1 when the connection with the server is established, 0 otherwise
 
 

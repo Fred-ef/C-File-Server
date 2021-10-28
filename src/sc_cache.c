@@ -36,7 +36,7 @@ sc_cache* sc_cache_create(int max_file_number, int max_byte_size) {
     if(!(cache->ht)) {LOG_ERR(errno, "create: allocating Cache's Hashtable"); goto cleanup_create;}
 
     cache->max_file_number=max_file_number;     // set the maximum numbers of file allowed
-    cache->max_byte_size=max_byte_size;         // set the maximum memory usable
+    cache->max_byte_size=max_byte_size*MB_TO_BYTES;         // set the maximum memory usable
     cache->curr_file_number=0;      // the cache is initially empty
     cache->curr_byte_size=0;        // the cache is initially empty
 
@@ -251,7 +251,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, int* usr_id, byte** 
                 if(res==ERR) {LOG_ERR(errno, "lookup: opening file"); return ERR;}   // a fatal error (memerr/mutexerr) has occurred
             }
 
-            else if(op==OPEN_C_F) res=ENOENT;    // checking this means the file already exists, so return error
+            else if(op==OPEN_C_F) res=EEXIST;    // checking this means the file already exists, so return error
 
             else if(op==READ_F) {   // if file open returns its data, else returns error
                 res=read_file(temp_file, data_read, usr_id);
