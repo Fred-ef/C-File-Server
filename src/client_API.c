@@ -151,14 +151,15 @@ int readFile(const char* pathname, void** buf, size_t* size) {
     size=(size_t*)malloc(sizeof(size_t));
     if(!size) return ERR;
     readn(fd_sock, (void*)(*size), sizeof(size_t));     // gets the size of the file to read
-    if(*size <= 0) {errno=EIO; goto cleanup_read;}
+    if(*size < 0) {errno=EIO; goto cleanup_read;}
 
-    // receives the file requested
-    (*buf)=(void*)malloc((*size)*sizeof(byte));
-    if(!buf) return ERR;
-    readn(fd_sock, (*buf), (*size));    // gets the actual file content
-    if(!(*buf)) {errno=EIO; goto cleanup_read;}
-
+    if(size==0) (*buf)=NULL;    // empty file, return null as its content
+    else {  // receives the file requested
+        (*buf)=(void*)malloc((*size)*sizeof(byte));
+        if(!buf) return ERR;
+        readn(fd_sock, (*buf), (*size));    // gets the actual file content
+        if(!(*buf)) {errno=EIO; goto cleanup_read;}
+    }
 
     if(int_buf) free(int_buf);
     return SUCCESS;       // the file has been opened on the server
@@ -345,7 +346,7 @@ static short sleep_ms(int duration) {
     timer->tv_nsec=(MS_TO_NS(duration));
 
     
-    if((errtemp=nanosleep_w(&timer))==ERR) {
+    if((errtemp=nanosleep_w(timer))==ERR) {
         return ERR;
     }
 

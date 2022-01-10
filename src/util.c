@@ -27,7 +27,7 @@ short compare_time(stimespec* a, stimespec* b) {
   }
 }
 
-short compare_current_time(stimespec* b) {
+short compare_current_time(const stimespec* b) {
   short errtemp;
   short result;
   stimespec* current=(stimespec*)malloc(sizeof(stimespec));   // TODO mem err

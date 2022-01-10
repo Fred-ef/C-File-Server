@@ -32,7 +32,7 @@ int parse(char* path, char* key, unsigned short* dest) {
   char* saveptr2;     // Declaration of the saving pointer to use in the strtok_r call
   char* token1;     // Declaration of the pointer used to memorize the current line in the config file in the strteok_r call
   char* token2;     // Declaration of the pointer used to memorize the current portion of the line in the config file in the strtok_r call
-  char* isSubstring;     // String indicating TODO
+  char* isSubstring;     // String indicating if is sub-string
   if((token1=strtok_r(buffer, "\n", &saveptr1))==NULL) {     // Getting the first line from the config file + elementary error handling
     // LOG THE ERROR TODO
     cleanup_f(source, fileStat, buffer, NULL);
@@ -96,7 +96,7 @@ int parse_s(char* path, char* key, char** dest) {
   char* saveptr2;     // Declaration of the saving pointer to use in the strtok_r call
   char* token1;     // Declaration of the pointer used to memorize the current line in the config file in the strteok_r call
   char* token2;     // Declaration of the pointer used to memorize the current portion of the line in the config file in the strtok_r call
-  char* isSubstring;     // String indicating TODO
+  char* isSubstring;     // String indicating if is sub-string
   if((token1=strtok_r(buffer, "\n", &saveptr1))==NULL) {     // Getting the first line from the config file + elementary error handling
     // LOG THE ERROR TODO
     cleanup_f(source, fileStat, buffer, NULL);

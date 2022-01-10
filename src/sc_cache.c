@@ -3,13 +3,13 @@
 byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
 
 static int open_file(file* file, int* usr_id);
-static int read_file(file* file_to_read, byte** data_read, int* usr_id);
+static int read_file(file* file_to_read, byte** data_read, unsigned* bytes_used, const int* usr_id);
 static int lock_file(file* file, int* usr_id);
 static int unlock_file(file* file, int* usr_id);
 static int remove_file(file* file, int* usr_id);
 static int close_file(file* file, int* usr_id);
-static int write_file(file* file, byte* data_written, unsigned bytes_written, int* usr_id);
-static int write_append(file* file, byte* data_written, unsigned bytes_written, int* usr_id);
+static int write_file(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id);
+static int write_append(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id);
 static int is_duplicate(file* file1, file* file2);
 static int int_ptr_cmp(const void* x, const void* y);
 
@@ -212,15 +212,16 @@ cleanup_alg:
 }
 
 
-int sc_lookup(sc_cache* cache, char* file_name, op_code op, int* usr_id, byte** data_read, byte* data_written, unsigned bytes_written) {
+int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, byte** data_read, byte* data_written, unsigned* bytes_used) {
     // ########## CONTROL SECTION ##########
     if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized"); return ERR;}
     if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified"); return ERR;}
     if(!usr_id) {LOG_ERR(EINVAL, "lookup: the usr id given is invalid"); return ERR;}
     if(op<1 || op>10) {LOG_ERR(EINVAL, "lookup: invalid operation code"); return ERR;}
-    if(op==READ_F && !data_read) {LOG_ERR(EINVAL, "lookup: invalid pointer provided"); return ERR;}
+    if(op==READ_F && !data_read) {LOG_ERR(EINVAL, "lookup: invalid data pointer provided"); return ERR;}
+    if(op==READ_F && !bytes_used) {LOG_ERR(EINVAL, "lookup: invalid size pointer provided"); return ERR;}
     if((op==WRITE_F || op==WRITE_F_APP) && !data_written) {LOG_ERR(EINVAL, "lookup: invalid pointer provided"); return ERR;} 
-    if((op==WRITE_F || op==WRITE_F_APP) && !bytes_written) {LOG_ERR(EINVAL, "lookup: invalid write size"); return ERR;}
+    if((op==WRITE_F || op==WRITE_F_APP) && !bytes_used) {LOG_ERR(EINVAL, "lookup: invalid write size"); return ERR;}
 
     // ########## USEFUL DECLARATIONS ##########
     int temperr;    // used for error codes
@@ -254,18 +255,17 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, int* usr_id, byte** 
             else if(op==OPEN_C_F) res=EEXIST;    // checking this means the file already exists, so return error
 
             else if(op==READ_F) {   // if file open returns its data, else returns error
-                res=read_file(temp_file, data_read, usr_id);
+                res=read_file(temp_file, data_read, bytes_used, usr_id);
                 if(res==ERR) {LOG_ERR(errno, "lookup: reading file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
-                ht->table[idx].entry=ht->mark;  // the item has been deleted, so mark it as deleted
             }
 
             else if(op==WRITE_F) {  // if last operation on the file was create&lock, writes the file's content
-                res=write_file(temp_file, data_written, bytes_written, usr_id);
+                res=write_file(temp_file, data_written, bytes_used, usr_id);
                 if(res==ERR) {LOG_ERR(errno, "lookup: writing file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
             }
 
             else if(op==WRITE_F_APP) {  // if the file isn't locked by another user, writes data in append
-                res=write_append(temp_file, data_written, bytes_written, usr_id);
+                res=write_append(temp_file, data_written, bytes_used, usr_id);
                 if(res==ERR) {LOG_ERR(errno, "lookup: writing file in append"); return ERR;}    // a fatal error (memerr/mutexerr) has occurred
             }
 
@@ -279,6 +279,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, int* usr_id, byte** 
             else if(op==RM_F) {     // if the file is locked by the user, deletes it from the cache
                 res=remove_file(temp_file, usr_id);        // if file is locked by the user, deletes it
                 if(res==ERR) {LOG_ERR(errno, "lookup: removing file"); return ERR;} // a fatal error (memerr/mutexerr) has occurred
+                ht->table[idx].entry=ht->mark;  // the item has been deleted, so mark it as deleted
             }
 
             else if(op==CLOSE_F) {  // closes the file for the user
@@ -316,7 +317,7 @@ static int open_file(file* file, int* usr_id) {
 
 
 // helper function: returns a copy of the file's data if previously opened
-static int read_file(file* file_to_read, byte** data_read, int* usr_id) {
+static int read_file(file* file_to_read, byte** data_read, unsigned* bytes_used, const int* usr_id) {
     int i;  // index for loop
     int res;
 
@@ -335,6 +336,7 @@ static int read_file(file* file_to_read, byte** data_read, int* usr_id) {
         for(i=0; i<(file_to_read->file_size); i++) (*data_read)[i]=(file_to_read->data)[i];
     }
     else (*data_read)=NULL;     // file was empty
+    (*bytes_used)=file_to_read->file_size;  // memorizing the size of the file read to send it to the user
 
     return SUCCESS;
 }
@@ -396,16 +398,16 @@ static int close_file(file* file, int* usr_id) {
 
 
 // helper function: writes the whole file if the last operation on it was create&lock
-static int write_file(file* file, byte* data_written, unsigned bytes_written, int* usr_id) {
+static int write_file(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id) {
     if(file->data || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
 
-    file->data=(byte*)malloc(bytes_written*sizeof(byte));
+    file->data=(byte*)malloc((*bytes_used)*sizeof(byte));
     if(!file->data) {LOG_ERR(errno, "writing file: memerr"); return ERR;}
-    file->file_size=bytes_written;  // updating file size
+    file->file_size=(*bytes_used);  // updating file size
 
-    for(i=0; i<bytes_written; i++) {    // writing data into the file
+    for(i=0; i<(*bytes_used); i++) {    // writing data into the file
         (file->data)[i] = data_written[i];      // TODO CAMBIARE CON LA COMPRESSIONE
     }
 
@@ -414,7 +416,7 @@ static int write_file(file* file, byte* data_written, unsigned bytes_written, in
 
 
 // helper function: writes the data passed as arg in append mode
-static int write_append(file* file, byte* data_written, unsigned bytes_written, int* usr_id) {
+static int write_append(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id) {
     if(file->f_lock && (file->f_lock)!=(*usr_id)) return EPERM;    // another user has a lock on this file
 
     int i=0, j;  // for loop index
@@ -424,13 +426,13 @@ static int write_append(file* file, byte* data_written, unsigned bytes_written, 
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
-    unsigned write_size=file->file_size+bytes_written;
+    unsigned write_size=file->file_size+(*bytes_used);
     byte* updated_data=(byte*)malloc(write_size*sizeof(byte));
     if(!updated_data) return ERR;   // fatal error, errno already set by the call
 
     // if the file already has some data in it, copy it to the updated version
     if(file->file_size) for(i=0; i<(file->file_size); i++) updated_data[i]=(file->data)[i];
-    for(j=0; i<write_size && j<bytes_written; i++, j++) updated_data[i]=data_written[j];
+    for(j=0; i<write_size && j<(*bytes_used); i++, j++) updated_data[i]=data_written[j];
 
     if(file->data) free(file->data);    // destroying old data
     file->data=updated_data;    // updating file's data
@@ -461,7 +463,7 @@ static int int_ptr_cmp(const void* x, const void* y) {
 
 
 
-/*
+
 void rand_str(char *dest, size_t length) {
     char charset[] = "0123456789"
                      "abcdefghijklmnopqrstuvwxyz"
@@ -504,7 +506,7 @@ void* popfun(void* arg) {
 }
 
 void* lookupfun(void* arg) {
-    lru_cache* cache=(lru_cache*)arg;
+    sc_cache* cache=(sc_cache*)arg;
     int i;
     file* file;
     printf("Thread looker %d starting\n", (gettid()));
@@ -517,7 +519,7 @@ void* lookupfun(void* arg) {
 }
 
 void* removefun(void* arg) {
-    lru_cache* cache=(lru_cache*)arg;
+    sc_cache* cache=(sc_cache*)arg;
     int i;
     file* file;
     printf("Thread remover %d starting\n", (gettid()));
@@ -530,7 +532,7 @@ void* removefun(void* arg) {
 }
 
 int main() {
-    lru_cache* cache=lru_cache_create(500, 10000);
+    sc_cache* cache=lru_cache_create(500, 10000);
     if(!cache) return -1;
     pthread_t* tid_arr=(pthread_t*)malloc(20*sizeof(pthread_t));
     if(!tid_arr) return -1;
@@ -587,4 +589,3 @@ int main() {
 
     return 0;
 }
-*/

@@ -436,7 +436,7 @@ static int read_files(char* arg) {
 
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
-        /*
+        /*  TODO UNCOMMENT
         if((temperr=readFile(token, &buffer, &size))==ERR) {
             perror("-r - error while writing files");
             goto cleanup_2;
@@ -452,7 +452,7 @@ static int read_files(char* arg) {
                     perror("-r - creating file on disk");
                     goto cleanup_1;
                 }
-                if((temperr=write(fd, buffer, size))==ERR) {    // writing file
+                if((temperr=write(fd, buffer, (*size)))==ERR) {    // writing file
                     perror("-r - writing file on disk");
                     goto cleanup_1;
                 }
