@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,5 +55,6 @@ int removeFile(const char* pathname);
 /* ########################## Auxiliary functions ################################## */
 
 static short sleep_ms(int);        // makes the caller sleep for 200ms
+char* build_path_name(char*, char*);     // build a pathname from the dir and filename given
 
 #endif // client_API_h

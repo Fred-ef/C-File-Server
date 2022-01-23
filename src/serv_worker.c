@@ -264,3 +264,71 @@ cleanup_w_read_fatal:
     return ERR; // server error, must fail loudly
 }
 
+
+static int worker_file_readn(int client_fd) {
+    int temperr;
+    int* int_buf=(int*)malloc(sizeof(int));
+    if(!int_buf) return ERR;    // errno already set by the call
+    char* pathname=NULL;     // will hold the pathname of the file to read
+    int path_len;   // length of the pathname
+
+    byte* data_read=NULL;   // will contain the returned file
+    int* bytes_read=NULL;  // will contain the size of the returned file
+
+    *int_buf=SUCCESS;   // the request has been accepted
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
+
+    // reading path string length
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
+    path_len=*int_buf;  // getting the pathname length
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
+
+    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
+    if(!pathname) goto cleanup_w_read_fatal;
+
+    // reading the pathname
+    if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_read;
+    if(!pathname) goto cleanup_w_read;
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
+
+    // getting the file from the cache
+    bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
+    if(!bytes_read) goto cleanup_w_read_fatal;
+    (*bytes_read)=0;    // setting a default value
+    if((temperr=sc_lookup(server_cache, pathname, READ_F, client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_read;
+    }
+
+    // communicating the size of the file to read
+    if((writen(client_fd, (void*)bytes_read, sizeof(int)))==ERR) goto cleanup_w_read;
+
+    // sending the file (ONLY IF it is not empty)
+    if((*bytes_read))
+        if((writen(client_fd, (void*)data_read, (*bytes_read)))==ERR) goto cleanup_w_read;
+    
+
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(data_read) free(data_read);
+    if(bytes_read) free(bytes_read);
+    return SUCCESS;
+
+// ERROR CLEANUP
+cleanup_w_read:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(data_read) free(data_read);
+    if(bytes_read) free(bytes_read);
+    return 0;   // client-side error, server can keep working
+cleanup_w_read_fatal:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(data_read) free(data_read);
+    if(bytes_read) free(bytes_read);
+    return ERR; // server error, must fail loudly
+}
+

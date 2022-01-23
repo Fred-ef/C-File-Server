@@ -236,7 +236,7 @@ static int parse_command(char** commands) {
         sleep(sleep_time);      // if -t has been used, sleep for the time specified
     }
 
-    // closeConnection(sockname); // TODO uncomment
+    // closeConnection(sockname); // TODO UNCOMMENT
     return SUCCESS;
 
     // ERROR CLEANUP SECTION
@@ -468,6 +468,8 @@ static int read_files(char* arg) {
         token=strtok_r(NULL, ",", &saveptr);
     }
 
+    if(token) free(token);
+    if(saveptr) free(saveptr);
     if(pathname) free(pathname);
     if(size) free(size);
     return SUCCESS;
@@ -500,7 +502,7 @@ static int read_n_files(char* arg) {
         if(token) n=atoi(token);
     }
 
-    /*
+    /* TODO uncomment
     // send the request to read the n files
     if((result=readNFiles(n, save_dir))==ERR) {
         perror("-R - error reading files");

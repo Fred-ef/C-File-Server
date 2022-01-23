@@ -150,7 +150,7 @@ int readFile(const char* pathname, void** buf, size_t* size) {
     // receives the size of the file to read
     size=(size_t*)malloc(sizeof(size_t));
     if(!size) return ERR;
-    readn(fd_sock, (void*)(*size), sizeof(size_t));     // gets the size of the file to read
+    readn(fd_sock, (void*)size, sizeof(size_t));     // gets the size of the file to read
     if(*size < 0) {errno=EIO; goto cleanup_read;}
 
     if(size==0) (*buf)=NULL;    // empty file, return null as its content
@@ -172,6 +172,94 @@ cleanup_read:
     return OP_ERR;
 }
 
+int readNFiles(int N, const char* dirname) {
+    if(!dirname) {errno=EINVAL; goto cleanup_readn;}
+
+    op_code op = READ_N_F;     // sets the operation code to readNFiles
+    int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
+    if(!int_buf) return ERR;
+    size_t* size=NULL;      // will contain the size of the current file
+    byte* buf=NULL;     // will contain the actual current file
+    char* file_name=NULL;       // will contain the name of the current file
+    short fd;   // will contain the fd of the current file
+    char* pathname=NULL;     // will contain the final path of the file
+
+    // communicates operation
+    *int_buf=op;
+    writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_readn;} 
+
+    // receives the number of files to read
+    readn(fd_sock, (void*)int_buf, sizeof(int));     // gets the size of the file to read
+    if(*int_buf < 0) {errno=*int_buf; goto cleanup_readn;}
+
+    // updating the number of files to read
+    N = *int_buf;
+
+    if(N>0) {     // if there is at least one file to read
+        while(N>0) {    // repeat until there are no more files to read
+
+            // receives the size of the name of the file
+            size=(size_t*)malloc(sizeof(size_t));
+            if(!size) return ERR;
+            readn(fd_sock, (void*)size, sizeof(size_t));     // gets the size of the file to read
+            if(*size < 0) {errno=EIO; break;}
+
+            // receives the name of the file
+            file_name=(char*)malloc((*size)*sizeof(char));
+            if(!file_name) return ERR;
+            readn(fd_sock, (void*)file_name, size);     // gets the size of the file to read
+            if(*size < 0) {errno=EIO; break;}
+            free(size);
+
+            // receives the size of the file to read
+            size=(size_t*)malloc(sizeof(size_t));
+            if(!size) return ERR;
+            readn(fd_sock, (void*)size, sizeof(size_t));     // gets the size of the file to read
+            if(*size < 0) {errno=EIO; break;}
+
+            // reading the file
+            if(size==0) (*buf)=NULL;    // empty file, return null as its content
+            else {  // receives the file requested
+                (*buf)=(void*)malloc((*size)*sizeof(byte));
+                if(!buf) return ERR;
+                readn(fd_sock, (*buf), (*size));    // gets the actual file content
+                if(!(*buf)) {errno=EIO; break;}
+            }
+
+            // creating the file in the specified dir
+            pathname = build_path_name(dirname, file_name);
+            if((fd=open(pathname, O_WRONLY, O_CREAT))==ERR) break;
+            if((write(fd, buf, size))==ERR) break;
+            if((close(fd))==ERR) return ERR;
+
+
+            free(size);
+            free(file_name);
+            free(buf);  // freeing buf to read next file
+            free(pathname);
+            N++;
+        }
+    }
+
+    if(int_buf) free(int_buf);
+    if(size) free(size);
+    if(file_name) free(file_name);
+    if(buf) free(buf);
+    if(pathname) free(pathname);
+    return N;
+
+// CLEANUP SECTION
+cleanup_readn:
+    if(int_buf) free(int_buf);
+    if(size) free(size);
+    if(file_name) free(file_name);
+    if(buf) free(buf);
+    if(pathname) free(pathname);
+    return OP_ERR;
+}
+
 
 int lockFile(const char* pathname) {
     if(pathname==NULL) {errno=EINVAL; goto cleanup_lock;}       // pathname cannot be NULL
@@ -182,7 +270,7 @@ int lockFile(const char* pathname) {
     if(!int_buf) return ERR;
     int temperr;
 
-    while((*int_buf)==EBUSY) {  // if the lock isn't immediately available, sleep and try again later
+    do {  // if the lock isn't immediately available, sleep and try again later
         // communicates operation
         *int_buf=op;
         writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
@@ -204,7 +292,7 @@ int lockFile(const char* pathname) {
         if((*int_buf)!=SUCCESS && (*int_buf)!=EBUSY) {errno=*int_buf; goto cleanup_lock;}       // if the operation failed, return error
 
         if(*int_buf!=SUCCESS) {if((temperr=sleep_ms(LOCK_TIMER))==ERR) return ERR;} // sleeps before asking again for the lock
-    }
+    } while((*int_buf)==EBUSY);
 
     if(int_buf) free(int_buf);
     return SUCCESS;
@@ -351,4 +439,26 @@ static short sleep_ms(int duration) {
     }
 
     return SUCCESS;
+}
+
+char* build_path_name(char* dir, char* name) {
+    if(!dir || !name) return NULL;
+    int dirlen = strlen(dir);
+    int namelen = strlen(name);
+    if(dirlen+namelen >= 1024-1) return NULL;
+
+    char* path_name = (char*)malloc(1024*sizeof(char));
+    if(!path_name) return NULL;
+    
+    strncpy(path_name, dir, dirlen);
+
+    if(path_name[dirlen-1] != '/') {
+        path_name[dirlen] = '/';
+        path_name[dirlen+1] = '\0';
+    }
+    
+    strncpy(path_name, name, namelen);
+    // TODO remove excess '/' from the name
+
+    return path_name;
 }

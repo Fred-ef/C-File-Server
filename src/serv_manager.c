@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    /*
+    /* TODO uncomment
     if((temperr=pthread_create(&(cleaner_thread), NULL, serv_clean, NULL))==ERR) {
         LOG_ERR(temperr, "manager: creating cleaner thread");
         goto cleanup_x;
