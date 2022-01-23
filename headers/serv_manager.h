@@ -22,8 +22,8 @@ sc_cache* server_cache;      // the actual cache structure used by the server
 unsigned server_byte_size;      // indicates the capacity of the server in terms of bytes of memory
 unsigned server_file_size;      // indicates the capacity of the server in terms of files in memory
 
-unsigned short thread_pool_cap;      // indicates the maximum number of worker-threads the server can manage at the same time
-char* sock_addr=NULL;       // will hold the server's main socket address
+unsigned thread_pool_cap;      // indicates the maximum number of worker-threads the server can manage at the same time
+char* sock_addr;       // will hold the server's main socket address
 conc_queue* requests_queue;        // the queue worker-threads will use to dispatch client's requests TODO cambiare tipo
 pthread_t* worker_threads_arr;      // array of worker threads
 pthread_t cleaner_thread;       // cleaner thread, handling file closing and lock-unlocking, should a client crash

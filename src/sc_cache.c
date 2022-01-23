@@ -2,14 +2,14 @@
 
 byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
 
-static int open_file(file* file, int* usr_id);
+static int open_file(file* file, const int* usr_id);
 static int read_file(file* file_to_read, byte** data_read, unsigned* bytes_used, const int* usr_id);
-static int lock_file(file* file, int* usr_id);
-static int unlock_file(file* file, int* usr_id);
-static int remove_file(file* file, int* usr_id);
-static int close_file(file* file, int* usr_id);
-static int write_file(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id);
-static int write_append(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id);
+static int lock_file(file* file, const int* usr_id);
+static int unlock_file(file* file, const int* usr_id);
+static int remove_file(file* file, const int* usr_id);
+static int close_file(file* file, const int* usr_id);
+static int write_file(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id);
+static int write_append(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id);
 static int is_duplicate(file* file1, file* file2);
 static int int_ptr_cmp(const void* x, const void* y);
 
@@ -302,7 +302,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
 
 
 // helper function: opens the file for the user; if it was already opened, returns successfully
-static int open_file(file* file, int* usr_id) {
+static int open_file(file* file, const int* usr_id) {
     int temperr;
 
     int* real_id=(int*)malloc(sizeof(int));
@@ -343,7 +343,7 @@ static int read_file(file* file_to_read, byte** data_read, unsigned* bytes_used,
 
 
 // helper function: if file is unlocked, locks the file; if user has the lock, returns successfully
-static int lock_file(file* file, int* usr_id) {
+static int lock_file(file* file, const int* usr_id) {
     int res;
 
     if(file->f_lock && (file->f_lock)!=(*usr_id)) return EBUSY;    // lock is held by another user
@@ -359,7 +359,7 @@ static int lock_file(file* file, int* usr_id) {
 
 
 // helper function: if the lock is held by the user, releases it; else, just returns successfully
-static int unlock_file(file* file, int* usr_id) {
+static int unlock_file(file* file, const int* usr_id) {
     if(file->f_lock && (file->f_lock!=(*usr_id))) return SUCCESS;  // user wasn't holding any lock
 
     file->f_lock=0;     // resets lock
@@ -368,7 +368,7 @@ static int unlock_file(file* file, int* usr_id) {
 
 
 // helper function: if the user has a lock on the file, deletes it from the server
-static int remove_file(file* file, int* usr_id) {
+static int remove_file(file* file, const int* usr_id) {
     if(file->f_lock != (*usr_id)) return EPERM;    // the user doesn't have a lock on the file; operation not permitted
 
     int temperr;
@@ -386,7 +386,7 @@ static int remove_file(file* file, int* usr_id) {
 
 
 // helper function: closes the file for the user; if it wasn't opened by the user, returns successfully
-static int close_file(file* file, int* usr_id) {
+static int close_file(file* file, const int* usr_id) {
     int temperr;
 
     if(file->f_lock==(*usr_id)) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
@@ -398,7 +398,7 @@ static int close_file(file* file, int* usr_id) {
 
 
 // helper function: writes the whole file if the last operation on it was create&lock
-static int write_file(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id) {
+static int write_file(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id) {
     if(file->data || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
@@ -416,7 +416,7 @@ static int write_file(file* file, byte* data_written, const unsigned* bytes_used
 
 
 // helper function: writes the data passed as arg in append mode
-static int write_append(file* file, byte* data_written, const unsigned* bytes_used, int* usr_id) {
+static int write_append(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id) {
     if(file->f_lock && (file->f_lock)!=(*usr_id)) return EPERM;    // another user has a lock on this file
 
     int i=0, j;  // for loop index
@@ -463,7 +463,7 @@ static int int_ptr_cmp(const void* x, const void* y) {
 
 
 
-
+/*
 void rand_str(char *dest, size_t length) {
     char charset[] = "0123456789"
                      "abcdefghijklmnopqrstuvwxyz"
@@ -589,3 +589,4 @@ int main() {
 
     return 0;
 }
+*/

@@ -173,7 +173,8 @@ cleanup_read:
 }
 
 int readNFiles(int N, const char* dirname) {
-    if(!dirname) {errno=EINVAL; goto cleanup_readn;}
+    if(!dirname) {errno=EINVAL; goto cleanup_readn;}    // dirname cannot be null
+    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_readn;}      // the client must be connected to send requests
 
     op_code op = READ_N_F;     // sets the operation code to readNFiles
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -182,7 +183,7 @@ int readNFiles(int N, const char* dirname) {
     byte* buf=NULL;     // will contain the actual current file
     char* file_name=NULL;       // will contain the name of the current file
     short fd;   // will contain the fd of the current file
-    char* pathname=NULL;     // will contain the final path of the file
+    char* pathname=NULL;     // will contain the final path of the current file
 
     // communicates operation
     *int_buf=op;
@@ -257,6 +258,121 @@ cleanup_readn:
     if(file_name) free(file_name);
     if(buf) free(buf);
     if(pathname) free(pathname);
+    return OP_ERR;
+}
+
+
+int writeFile(const char* pathname, const char* dirname) {
+    if(!pathname || !dirname) {errno=EINVAL; goto cleanup_write;}   // args cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_write;}      // the client must be connected to send requests
+
+    op_code op = WRITE_F;
+    int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
+    if(!int_buf) return ERR;
+    short fd;   // will hold the file to write
+    byte* buf=NULL;     // will hold the file raw content
+    struct stat* fileStat=NULL;     // will hold the file info
+
+    if((fd=open(pathname, O_RDONLY, NULL))==ERR) goto cleanup_write;    // opening the file
+    fileStat=(struct stat*)malloc(sizeof(struct stat));     // getting file struct
+    if(!fileStat) return ERR;
+    if((fstat(fd, fileStat))==ERR) goto cleanup_write;  // getting file info
+    unsigned fileSize=(unsigned)fileStat->st_size;  // getting file size
+
+    buf=(byte*)malloc(fileSize*sizeof(byte));   // allocating file space
+    if(!buf) return ERR;
+    if((readn(fd, buf, fileSize))==ERR) goto cleanup_write;     // getting file's raw data into the buffer
+
+
+    // communicates operation
+    *int_buf=op;
+    writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}
+
+    // communicates pathname lenght
+    *int_buf=strlen(pathname);
+    writen(fd_sock, (void*)int_buf, sizeof(int));      // tells the server what read size to expect next
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server couldn't process the size, abort the operation
+
+    // communicates pathname
+    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to write
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server could not get the path, abort the operation
+
+    // communicates file lenght
+    *int_buf=fileSize;
+    writen(fd_sock, (void*)int_buf, sizeof(int));      // tells the server what read size to expect next
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server couldn't process the size, abort the operation
+
+    // sends the file data
+    writen(fd_sock, (void*)buf, fileSize);  // sends the actual file
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}   // if the server coudln't read the file, abort the operation
+
+    // TODO check if there is more
+
+
+    if(int_buf) free(int_buf);
+    if(buf) free(buf);
+    if(fileStat) free(fileStat);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_write:
+    if(int_buf) free(int_buf);
+    if(buf) free(buf);
+    if(fileStat) free(fileStat);
+    return OP_ERR;
+}
+
+
+int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname) {
+    if(!pathname || !buf || !dirname) {errno=EINVAL; goto cleanup_append;}       // pathname cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_append;}      // the client must be connected to send requests
+
+    op_code op=WRITE_F_APP;
+    int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
+    if(!int_buf) return ERR;
+
+
+    // communicates operation
+    *int_buf=op;
+    writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}
+
+    // communicates pathname lenght
+    *int_buf=strlen(pathname);
+    writen(fd_sock, (void*)int_buf, sizeof(int));      // tells the server what read size to expect next
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}       // if the server couldn't process the size, abort the operation
+
+    // communicates pathname
+    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to write
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}       // if the server could not get the path, abort the operation
+
+    // communicates bytes to write
+    *int_buf=size;
+    writen(fd_sock, (void*)int_buf, sizeof(size_t));      // tells the server what read size to expect next
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}       // if the server couldn't process the size, abort the operation
+
+    // sends the file data
+    writen(fd_sock, (void*)buf, size);  // sends the actual file
+    readn(fd_sock, (void*)int_buf, sizeof(int));
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}   // if the server coudln't read the file, abort the operation
+
+
+    if(int_buf) free(int_buf);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_append:
+    if(int_buf) free(int_buf);
     return OP_ERR;
 }
 

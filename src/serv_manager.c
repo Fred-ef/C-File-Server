@@ -17,8 +17,8 @@ unsigned short fd_pipe_write;   // will hold the write descriptor for the commun
 volatile __sig_atomic_t soft_close=0;     // communicates the threads to finish all the remaining work and shut down
 volatile __sig_atomic_t hard_close=0;     // communicates the threads to finish only the current request and shut down
 
-static int read_config(char*);     // parses the config file given, assigning its values to the variables specified
-static int check_dir_path(char*);       // checks the given path, determining if it is a valid directory path
+int read_config(char*);     // parses the config file given, assigning its values to the variables specified
+int check_dir_path(char*);       // checks the given path, determining if it is a valid directory path
 
 
 int main(int argc, char* argv[]) {
@@ -143,7 +143,7 @@ int main(int argc, char* argv[]) {
                     if(*int_buf<0) {     // the client disconnected
                         (*int_buf)*=-1;    // inverting sign to get the actual fd
                         FD_CLR(*int_buf, &curr_set);     // removing the fd from the curr fd set
-                        close(int_buf);     // closing communication
+                        close(*int_buf);     // closing communication
                     }
                     // client request served
                     else FD_SET(*int_buf, &curr_set);    // reinserting the client fd in the curr fd set
@@ -223,16 +223,18 @@ cleanup_x:
 /* #################################################################################################### */
 
 
-static int read_config(char* path) {
+int read_config(char* path) {
     // TODO gestire eventuali errori nella funzione di parsing
     if((parse(path, "thread_pool_cap", &thread_pool_cap))==ERR) return ERR;
     if((parse_s(path, "sock_addr", &sock_addr))==ERR) return ERR;
+    if((parse(path, "server_byte_size", &server_byte_size))==ERR) return ERR;
+    if((parse(path, "server_file_size", &server_file_size))==ERR) return ERR;
 
     return SUCCESS;
 }
 
 
-static int check_dir_path(char* path) {
+int check_dir_path(char* path) {
     int i;      // for loop index
     char temp='a';      // temp var
 

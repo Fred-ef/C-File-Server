@@ -1,5 +1,15 @@
 #include "serv_worker.h"
 
+static int worker_file_open(int);
+static int worker_file_read(int);
+static int worker_file_readn(int);
+static int worker_file_write(int);
+static int worker_file_write_app(int);
+static int worker_file_lock(int);
+static int worker_file_unlock(int);
+static int worker_file_remove(int);
+static int worker_file_close(int);
+
 // thread main
 void* worker_func(void* arg) {
 
@@ -154,7 +164,7 @@ static int worker_file_open(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
 
     if(flags==0) {  // normal open
-        if((temperr=sc_lookup(server_cache, pathname, OPEN_F, client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if((temperr=sc_lookup(server_cache, pathname, OPEN_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
             goto cleanup_w_open;
@@ -162,7 +172,7 @@ static int worker_file_open(int client_fd) {
     }
 
     else if(flags==O_CREATE || flags==(O_CREATE|O_LOCK)) {  // open with create
-        if((temperr=sc_lookup(server_cache, pathname, OPEN_C_F, client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if((temperr=sc_lookup(server_cache, pathname, OPEN_C_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
             goto cleanup_w_open;
@@ -170,7 +180,7 @@ static int worker_file_open(int client_fd) {
     }
 
     if(flags==O_LOCK || flags==(O_CREATE|O_LOCK)) { // open with lock
-        if((temperr=sc_lookup(server_cache, pathname, LOCK_F, client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
             goto cleanup_w_open;
@@ -229,7 +239,7 @@ static int worker_file_read(int client_fd) {
     bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
     if(!bytes_read) goto cleanup_w_read_fatal;
     (*bytes_read)=0;    // setting a default value
-    if((temperr=sc_lookup(server_cache, pathname, READ_F, client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
         goto cleanup_w_read;
@@ -297,7 +307,7 @@ static int worker_file_readn(int client_fd) {
     bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
     if(!bytes_read) goto cleanup_w_read_fatal;
     (*bytes_read)=0;    // setting a default value
-    if((temperr=sc_lookup(server_cache, pathname, READ_F, client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
         goto cleanup_w_read;
@@ -332,3 +342,31 @@ cleanup_w_read_fatal:
     return ERR; // server error, must fail loudly
 }
 
+static int worker_file_write(int client_fd) {
+
+}
+
+
+static int worker_file_write_app(int client_fd) {
+
+}
+
+
+static int worker_file_lock(int client_fd) {
+
+}
+
+
+static int worker_file_unlock(int client_fd) {
+
+}
+
+
+static int worker_file_remove(int client_fd) {
+
+}
+
+
+static int worker_file_close(int client_fd) {
+
+}
