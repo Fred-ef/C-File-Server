@@ -337,7 +337,7 @@ static int worker_file_write(int client_fd) {
     if(!int_buf) return ERR;    // errno already set by the call
     char* pathname=NULL;     // will hold the pathname of the file to write
     int path_len;   // length of the pathname
-    size_t bytes_written;    // dimension of the file
+    unsigned bytes_written;    // dimension of the file
     byte* data_written=NULL;     // file data
 
 
@@ -372,7 +372,7 @@ static int worker_file_write(int client_fd) {
     if(!data_written) goto cleanup_w_write;
 
     // writing the file into the cache
-    if((temperr=sc_lookup(server_cache, pathname, WRITE_F, &client_fd, NULL, &data_written, &bytes_written))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, WRITE_F, &client_fd, NULL, data_written, &bytes_written))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -404,7 +404,7 @@ static int worker_file_write_app(int client_fd) {
     if(!int_buf) return ERR;    // errno already set by the call
     char* pathname=NULL;     // will hold the pathname of the file to write onto
     int path_len;   // length of the pathname
-    size_t bytes_written;    // dimension of the write block
+    unsigned bytes_written;    // dimension of the write block
     byte* data_written=NULL;     // write block data
 
 
@@ -439,7 +439,7 @@ static int worker_file_write_app(int client_fd) {
     if(!data_written) goto cleanup_w_write_app;
 
     // writing the file into the cache
-    if((temperr=sc_lookup(server_cache, pathname, WRITE_F_APP, &client_fd, NULL, &data_written, &bytes_written))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, WRITE_F_APP, &client_fd, NULL, data_written, &bytes_written))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
