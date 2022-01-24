@@ -149,7 +149,7 @@ static int worker_file_open(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
 
     pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
-    if(!pathname) goto cleanup_w_open_fatal;
+    if(!pathname) return ERR;
 
     // reading the pathname
     if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_open;
@@ -165,6 +165,7 @@ static int worker_file_open(int client_fd) {
 
     if(flags==0) {  // normal open
         if((temperr=sc_lookup(server_cache, pathname, OPEN_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+            if(temperr==ERR) return ERR;
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
             goto cleanup_w_open;
@@ -173,6 +174,7 @@ static int worker_file_open(int client_fd) {
 
     else if(flags==O_CREATE || flags==(O_CREATE|O_LOCK)) {  // open with create
         if((temperr=sc_lookup(server_cache, pathname, OPEN_C_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+            if(temperr==ERR) return ERR;
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
             goto cleanup_w_open;
@@ -181,6 +183,7 @@ static int worker_file_open(int client_fd) {
 
     if(flags==O_LOCK || flags==(O_CREATE|O_LOCK)) { // open with lock
         if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+            if(temperr==ERR) return ERR;
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
             goto cleanup_w_open;
@@ -199,11 +202,7 @@ static int worker_file_open(int client_fd) {
 cleanup_w_open:
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
-    return 0;   // client-side error, server can keep working
-cleanup_w_open_fatal:
-    if(int_buf) free(int_buf);
-    if(pathname) free(pathname);
-    return ERR; // server error, must fail loudly
+    return -2;   // client-side error, server can keep working
 }
 
 
@@ -227,7 +226,7 @@ static int worker_file_read(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
 
     pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
-    if(!pathname) goto cleanup_w_read_fatal;
+    if(!pathname) return ERR;
 
     // reading the pathname
     if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_read;
@@ -237,9 +236,10 @@ static int worker_file_read(int client_fd) {
 
     // getting the file from the cache
     bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
-    if(!bytes_read) goto cleanup_w_read_fatal;
+    if(!bytes_read) return ERR;
     (*bytes_read)=0;    // setting a default value
     if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
         goto cleanup_w_read;
@@ -265,13 +265,7 @@ cleanup_w_read:
     if(pathname) free(pathname);
     if(data_read) free(data_read);
     if(bytes_read) free(bytes_read);
-    return 0;   // client-side error, server can keep working
-cleanup_w_read_fatal:
-    if(int_buf) free(int_buf);
-    if(pathname) free(pathname);
-    if(data_read) free(data_read);
-    if(bytes_read) free(bytes_read);
-    return ERR; // server error, must fail loudly
+    return -2;   // client-side error, server can keep working
 }
 
 
@@ -295,7 +289,7 @@ static int worker_file_readn(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
 
     pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
-    if(!pathname) goto cleanup_w_read_fatal;
+    if(!pathname) return ERR;
 
     // reading the pathname
     if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_read;
@@ -305,9 +299,10 @@ static int worker_file_readn(int client_fd) {
 
     // getting the file from the cache
     bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
-    if(!bytes_read) goto cleanup_w_read_fatal;
+    if(!bytes_read) return ERR;
     (*bytes_read)=0;    // setting a default value
     if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
         goto cleanup_w_read;
@@ -333,40 +328,342 @@ cleanup_w_read:
     if(pathname) free(pathname);
     if(data_read) free(data_read);
     if(bytes_read) free(bytes_read);
-    return 0;   // client-side error, server can keep working
-cleanup_w_read_fatal:
-    if(int_buf) free(int_buf);
-    if(pathname) free(pathname);
-    if(data_read) free(data_read);
-    if(bytes_read) free(bytes_read);
-    return ERR; // server error, must fail loudly
+    return -2;   // client-side error, server can keep working
 }
 
 static int worker_file_write(int client_fd) {
+    int temperr;
+    int* int_buf=(int*)malloc(sizeof(int));
+    if(!int_buf) return ERR;    // errno already set by the call
+    char* pathname=NULL;     // will hold the pathname of the file to write
+    int path_len;   // length of the pathname
+    size_t bytes_written;    // dimension of the file
+    byte* data_written=NULL;     // file data
 
+
+    *int_buf=SUCCESS;   // the request has been accepted
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+
+    // reading path string length
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+    path_len=*int_buf;  // getting the pathname length
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+
+    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
+    if(!pathname) goto cleanup_w_write;
+
+    // reading the pathname
+    if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_write;
+    if(!pathname) goto cleanup_w_write;
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+
+    // reading the file size
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+    bytes_written=*int_buf;
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+
+    // reading the file data
+    data_written=(byte*)calloc(bytes_written, sizeof(byte));
+    if(!data_written) return ERR;
+    if((readn(client_fd, (void*)data_written, bytes_written))==ERR) goto cleanup_w_write;
+    if(!data_written) goto cleanup_w_write;
+
+    // writing the file into the cache
+    if((temperr=sc_lookup(server_cache, pathname, WRITE_F, &client_fd, NULL, &data_written, &bytes_written))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_write;
+    }
+
+    // returning a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+
+
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(data_written) free(data_written);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_w_write:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(data_written) free(data_written);
+    return -2;
 }
 
 
 static int worker_file_write_app(int client_fd) {
+    int temperr;
+    int* int_buf=(int*)malloc(sizeof(int));
+    if(!int_buf) return ERR;    // errno already set by the call
+    char* pathname=NULL;     // will hold the pathname of the file to write onto
+    int path_len;   // length of the pathname
+    size_t bytes_written;    // dimension of the write block
+    byte* data_written=NULL;     // write block data
 
+
+    *int_buf=SUCCESS;   // the request has been accepted
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+
+    // reading path string length
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+    path_len=*int_buf;  // getting the pathname length
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+
+    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
+    if(!pathname) goto cleanup_w_write_app;
+
+    // reading the pathname
+    if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_write_app;
+    if(!pathname) goto cleanup_w_write_app;
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+
+    // reading the write block size
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+    bytes_written=*int_buf;
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+
+    // reading the write block data
+    data_written=(byte*)calloc(bytes_written, sizeof(byte));
+    if(!data_written) return ERR;
+    if((readn(client_fd, (void*)data_written, bytes_written))==ERR) goto cleanup_w_write_app;
+    if(!data_written) goto cleanup_w_write_app;
+
+    // writing the file into the cache
+    if((temperr=sc_lookup(server_cache, pathname, WRITE_F_APP, &client_fd, NULL, &data_written, &bytes_written))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_write_app;
+    }
+
+    // returning a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+
+
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(data_written) free(data_written);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_w_write_app:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(data_written) free(data_written);
+    return -2;
 }
 
 
 static int worker_file_lock(int client_fd) {
+    int temperr;
+    int* int_buf=(int*)malloc(sizeof(int));
+    if(!int_buf) return ERR;    // errno already set by the call
+    char* pathname=NULL;     // will hold the pathname of the file to lock
+    int path_len;   // length of the pathname
 
+
+    *int_buf=SUCCESS;   // the request has been accepted
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_lock;
+
+    // reading path string length
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_lock;
+    path_len=*int_buf;  // getting the pathname length
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_lock;
+
+    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
+    if(!pathname) goto cleanup_w_lock;
+
+    // reading the pathname
+    if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_lock;
+    if(!pathname) goto cleanup_w_lock;
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_lock;
+
+    // performing the lock operation
+    if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_lock;
+    }
+
+    // returning a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_lock;
+
+
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_w_lock:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return -2;
 }
 
 
 static int worker_file_unlock(int client_fd) {
+    int temperr;
+    int* int_buf=(int*)malloc(sizeof(int));
+    if(!int_buf) return ERR;    // errno already set by the call
+    char* pathname=NULL;     // will hold the pathname of the file to unlock
+    int path_len;   // length of the pathname
 
+
+    *int_buf=SUCCESS;   // the request has been accepted
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
+
+    // reading path string length
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
+    path_len=*int_buf;  // getting the pathname length
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
+
+    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
+    if(!pathname) goto cleanup_w_unlock;
+
+    // reading the pathname
+    if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_unlock;
+    if(!pathname) goto cleanup_w_unlock;
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
+
+    // performing the unlock operation
+    if((temperr=sc_lookup(server_cache, pathname, UNLOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_unlock;
+    }
+
+    // returning a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
+
+
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_w_unlock:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return -2;
 }
 
 
 static int worker_file_remove(int client_fd) {
+    int temperr;
+    int* int_buf=(int*)malloc(sizeof(int));
+    if(!int_buf) return ERR;    // errno already set by the call
+    char* pathname=NULL;     // will hold the pathname of the file to remove
+    int path_len;   // length of the pathname
 
+
+    *int_buf=SUCCESS;   // the request has been accepted
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_rm;
+
+    // reading path string length
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_rm;
+    path_len=*int_buf;  // getting the pathname length
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_rm;
+
+    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
+    if(!pathname) goto cleanup_w_rm;
+
+    // reading the pathname
+    if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_rm;
+    if(!pathname) goto cleanup_w_rm;
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_rm;
+
+    // performing the remove operation
+    if((temperr=sc_lookup(server_cache, pathname, RM_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_rm;
+    }
+
+    // returning a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_rm;
+
+
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_w_rm:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return -2;
 }
 
 
 static int worker_file_close(int client_fd) {
+    int temperr;
+    int* int_buf=(int*)malloc(sizeof(int));
+    if(!int_buf) return ERR;    // errno already set by the call
+    char* pathname=NULL;     // will hold the pathname of the file to close
+    int path_len;   // length of the pathname
 
+
+    *int_buf=SUCCESS;   // the request has been accepted
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
+
+    // reading path string length
+    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
+    path_len=*int_buf;  // getting the pathname length
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
+
+    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
+    if(!pathname) goto cleanup_w_close;
+
+    // reading the pathname
+    if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_close;
+    if(!pathname) goto cleanup_w_close;
+    *int_buf=SUCCESS;   // step OK
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
+
+    // performing the close operation
+    if((temperr=sc_lookup(server_cache, pathname, CLOSE_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_close;
+    }
+
+    // returning a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
+
+
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_w_close:
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    return -2;
 }

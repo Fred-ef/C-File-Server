@@ -542,7 +542,7 @@ cleanup_close:
 /* #################################################################################################### */
 
 
-static short sleep_ms(int duration) {
+short sleep_ms(int duration) {
     short errtemp;
     stimespec* timer=(stimespec*)malloc(sizeof(stimespec));
     if(!timer) {errno=ENOMEM; return ERR;}
