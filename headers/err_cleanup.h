@@ -32,6 +32,7 @@
 
 // Definition an error-management printing function
 #define LOG_ERR(err_code, err_desc) \
+  errno=err_code; \
   fprintf(stderr, "%s: %s\n", err_desc, strerror(err_code));
 
 #ifdef MTX_DEBUG      // Definition of a printing debug function for mutexes

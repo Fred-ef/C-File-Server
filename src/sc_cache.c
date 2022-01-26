@@ -130,7 +130,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
     // if the insertion failed, return an error
     if(res!=FOUND) goto cleanup_insert;
     LOG_DEBUG("INSERTED IN LIST\n");       // TODO REMOVE
-    return res;     // returns the insert operation's result
+    return SUCCESS;     // returns the insert operation's result
 
 // CLEANUP SECTION
 cleanup_insert:
@@ -243,11 +243,14 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
         // if the entry is NULL, the element is not in the hashtable
         if(((ht->table)[idx]).entry==NULL) res=ENOENT;
 
+        // if the entry has been deleted, continue probing
+        else if (((ht->table)[idx]).entry==ht->mark) {}
+
         // if there's a match, perform the correct operation base on the op_code
         else if(!strcmp(file_name, ((file*)ht->table[idx].entry)->name)) {
-            LOG_DEBUG("\nCHECKPOINT\n");
             temp_file=(file*)ht->table[idx].entry;  // shortcut to current file
             ht->table[idx].r_used=1;    // since the file has just been referred, update its used-bit
+            if(op!=WRITE_F) temp_file->f_write=0;   // if the operation isn't a writeFile, disables the operation
 
             // Calls a different function based on the operation flag
             if(op==OPEN_F) {    // opens the file if it's not locked
@@ -310,9 +313,9 @@ file* file_create(char* pathname) {
     new_file->data=NULL;
     new_file->f_lock=0;
     new_file->f_open=0;
-    new_file->f_write=0;
+    new_file->f_write=1;
     new_file->file_size=0;
-    new_file->name=(char*)calloc(strlen(pathname), sizeof(char));
+    new_file->name=(char*)calloc(strlen(pathname)+1, sizeof(char));
     if(!new_file) return NULL;  // mem error
     strcpy((new_file->name), pathname);
     new_file->open_list=ll_create();

@@ -41,14 +41,14 @@ int main(int argc, char* argv[]) {
     short temperr;      // used for error codes
 
     if((temperr=parse_command(argv))==ERR) {
-        if(save_dir) {free(save_dir); save_dir=NULL;}
-        if(miss_dir) {free(miss_dir); miss_dir=NULL;}
+        if(save_dir) free(save_dir);
+        if(miss_dir) free(miss_dir);
         return ERR;
     }
 
     
-    if(save_dir) {free(save_dir); save_dir=NULL;}
-    if(miss_dir) {free(miss_dir); miss_dir=NULL;}
+    if(save_dir) free(save_dir);
+    if(miss_dir) free(miss_dir);
     return SUCCESS;         // successful termination
 }
 
@@ -372,12 +372,12 @@ static int set_save_dir(char* dir) {
         return ERR;
     }
 
-    save_dir=(char*)malloc((strlen(dir))*sizeof(char));
+    save_dir=(char*)malloc((strlen(dir)+1)*sizeof(char));
     if(!save_dir) {
         perror("-d - setting save directory");
         return ERR;
     }
-    strncpy(save_dir, dir, sizeof(dir));
+    strncpy(save_dir, dir, strlen(dir)+1);
 
     return SUCCESS;
 }
@@ -390,12 +390,12 @@ static int set_miss_dir(char* dir) {
         return ERR;
     }
 
-    miss_dir=(char*)malloc((strlen(dir))*sizeof(char));
+    miss_dir=(char*)malloc((strlen(dir)+1)*sizeof(char));
     if(!miss_dir) {
         perror("-D - setting save directory");
         return ERR;
     }
-    strncpy(miss_dir, dir, sizeof(dir));
+    strncpy(miss_dir, dir, strlen(dir)+1);
 
     return SUCCESS;
 }
@@ -603,7 +603,7 @@ static int visit_folder(DIR* dir_obj, int rem_files) {
         return ERR;
     }
     // completing current dir path with '/' symbol
-    strncat(file_name, "/", (FILE_PATH_MAX-strlen(file_name)-1));
+    strncat(file_name, "/", (FILE_PATH_MAX-strlen(file_name)));
     // getting the position of the null-terminating character in current dir path
     // this will be used later to re-set the position to scan other files
     for(i=0; i<(FILE_PATH_MAX-1); i++) {
@@ -641,6 +641,14 @@ static int visit_folder(DIR* dir_obj, int rem_files) {
         else if(curr_file->d_type==DT_REG) {
             if((temperr=openFile(file_name, O_CREATE|O_LOCK))==ERR) {
                 LOG_ERR(errno, "-w - could not send all files");
+                if(errno!=EEXIST) {
+                    if(file_name) free(file_name);
+                    return ERR;
+                }
+            }
+            LOG_DEBUG("FILE %s SENT\n", file_name);
+            if((temperr=writeFile(file_name, save_dir))==ERR) {
+                LOG_ERR(errno, "-w - could not write all files");
                 if(file_name) free(file_name);
                 return ERR;
             }

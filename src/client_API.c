@@ -25,7 +25,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
     struct sockaddr_un sa;      // server socket address
 
-    serv_sk=calloc(strlen(sockname), sizeof(char));       // memorizes the server's address in order to modify the connection later TODO memerr
+    serv_sk=calloc(strlen(sockname)+1, sizeof(char));       // memorizes the server's address in order to modify the connection later TODO memerr
     if(!serv_sk) return ERR;
 
     strcpy(serv_sk, sockname);        // writes the sock address in a global variable to store it
@@ -69,6 +69,7 @@ int closeConnection(const char* sockname) {
     if((errtemp=close(fd_sock))==ERR) return ERR;       // couldn't close socket
 
 
+    is_connected=0;     // setting the connection flag to false
     if(serv_sk) {free(serv_sk); serv_sk=NULL;}  // freeing the sock address
     return SUCCESS;     // the client has successfully closed the connection to the file server
 
@@ -145,7 +146,7 @@ int readFile(const char* pathname, void** buf, size_t* size) {
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_read;}       // if the server couldn't process the size, abort the operation
 
     // communicates pathname
-    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to open
+    writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to open
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_read;}       // if the server could not get the path, abort the operation
 
@@ -263,7 +264,7 @@ cleanup_readn:
 
 
 int writeFile(const char* pathname, const char* dirname) {
-    if(!pathname || !dirname) {errno=EINVAL; return ERR;}   // args cannot be NULL
+    if(!pathname) {errno=EINVAL; return ERR;}   // args cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op = WRITE_F;
@@ -273,7 +274,9 @@ int writeFile(const char* pathname, const char* dirname) {
     byte* buf=NULL;     // will hold the file raw content
     struct stat* fileStat=NULL;     // will hold the file info
 
+    LOG_DEBUG("File name: %s\n", pathname);
     if((fd=open(pathname, O_RDONLY, NULL))==ERR) goto cleanup_write;    // opening the file
+    LOG_DEBUG("WRITING FILE\n");
     fileStat=(struct stat*)malloc(sizeof(struct stat));     // getting file struct
     if(!fileStat) return ERR;
     if((fstat(fd, fileStat))==ERR) goto cleanup_write;  // getting file info
@@ -297,7 +300,7 @@ int writeFile(const char* pathname, const char* dirname) {
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server couldn't process the size, abort the operation
 
     // communicates pathname
-    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to write
+    writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to write
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server could not get the path, abort the operation
 
@@ -351,7 +354,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}       // if the server couldn't process the size, abort the operation
 
     // communicates pathname
-    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to write
+    writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to write
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}       // if the server could not get the path, abort the operation
 
@@ -480,7 +483,7 @@ int closeFile(const char* pathname) {
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the server couldn't process the size, abort the operation
 
     // communicates pathname
-    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to close
+    writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to close
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the server could not get the path, abort the operation
 
@@ -561,16 +564,16 @@ char* build_path_name(const char* dir, const char* name) {
     if(!dir || !name) return NULL;
     int dirlen = strlen(dir);
     int namelen = strlen(name);
-    if(dirlen+namelen >= 1024-1) return NULL;
+    if(dirlen+namelen >= 1024-2) return NULL;
 
     char* path_name = (char*)malloc(1024*sizeof(char));
     if(!path_name) return NULL;
     
     strncpy(path_name, dir, dirlen);
 
-    if(path_name[dirlen-1] != '/') {
-        path_name[dirlen] = '/';
-        path_name[dirlen+1] = '\0';
+    if(path_name[dirlen] != '/') {
+        path_name[dirlen+1] = '/';
+        path_name[dirlen+2] = '\0';
     }
     
     strncpy(path_name, name, namelen);
