@@ -6,7 +6,7 @@ bool is_connected=0;     // set to 1 when the connection with the server is esta
 
 // Opens the connection to the server
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
-    if(!sockname) {errno=EINVAL; return OP_ERR;}
+    if(!sockname) {errno=EINVAL; return ERR;}
 
     short errtemp;      // used for error-testing in syscalls
     short timeout;      // used for timeout expiration checking
@@ -15,10 +15,10 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
     stimespec* rem_time=NULL;        // auxiliary structure, in case of sleep-interruption
 
     timer=(stimespec*)malloc(sizeof(stimespec));
-    if(!timer) {errno=ENOMEM; return ERR;}
+    if(!timer) return ERR;
 
     rem_time=(stimespec*)malloc(sizeof(stimespec));
-    if(!rem_time) {errno=ENOMEM; return ERR;}
+    if(!rem_time) return ERR;
 
     timer->tv_sec=0;        // no need for seconds!
     timer->tv_nsec=(MS_TO_NS(RECONNECT_TIMER));     // setting the timer with the proper value
@@ -26,7 +26,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
     struct sockaddr_un sa;      // server socket address
 
     serv_sk=calloc(strlen(sockname), sizeof(char));       // memorizes the server's address in order to modify the connection later TODO memerr
-    if(!serv_sk) {errno=ENOMEM; return ERR;}
+    if(!serv_sk) return ERR;
 
     strcpy(serv_sk, sockname);        // writes the sock address in a global variable to store it
     strcpy(sa.sun_path, sockname);       // writes the sock address in the socket adress structure
@@ -45,12 +45,14 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
 
     is_connected=1;
-    cleanup_pointers((void*)timer, (void*)rem_time, (void*)serv_sk, NULL);        // cleaning all the allocated memory
+    if(timer) free(timer);
+    if(rem_time) free(rem_time);
     return SUCCESS;     // the client has successfully connected to the file server
 
 cleanup_connect:        // executes in case something went wrong and the operation cannot be successfully completed
-    cleanup_pointers((void*)timer, (void*)rem_time, (void*)serv_sk, NULL);        // cleaning all the allocated memory
-    return OP_ERR;     // informs the caller that the operation failed
+    if(timer) free(timer);
+    if(rem_time) free(rem_time);
+    return ERR;     // informs the caller that the operation failed
 }
 
 
@@ -67,19 +69,19 @@ int closeConnection(const char* sockname) {
     if((errtemp=close(fd_sock))==ERR) return ERR;       // couldn't close socket
 
 
-    if(serv_sk) free(serv_sk);  // freeing the sock address
+    if(serv_sk) {free(serv_sk); serv_sk=NULL;}  // freeing the sock address
     return SUCCESS;     // the client has successfully closed the connection to the file server
 
 // CLEANUP SECTION
 cleanup_close:
-    if(serv_sk) free(serv_sk);
-    return OP_ERR;
+    if(serv_sk) {free(serv_sk); serv_sk=NULL;}
+    return ERR;
 }
 
 
 int openFile(const char* pathname, int flags) {
-    if(!pathname) {errno=EINVAL; goto cleanup_open;}       // pathname cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_open;}      // the client must be connected to send requests
+    if(!pathname) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op=OPEN_F;        // sets the operation code to openFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -95,10 +97,10 @@ int openFile(const char* pathname, int flags) {
     *int_buf=strlen(pathname);
     writen(fd_sock, (void*)int_buf, sizeof(int));      // tells the server what read size to expect next
     readn(fd_sock, (void*)int_buf, sizeof(int));
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_open;}       // if the server couldn't process the size, abort the operation
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_open;}
 
     // communicates pathname
-    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to open
+    writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to open
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_open;}       // if the server could not get the path, abort the operation
 
@@ -118,13 +120,13 @@ int openFile(const char* pathname, int flags) {
 // CLEANUP SECTION
 cleanup_open:
     if(int_buf) free(int_buf);
-    return OP_ERR;
+    return ERR;
 }
 
 
 int readFile(const char* pathname, void** buf, size_t* size) {
-    if(!pathname || !size || !buf) {errno=EINVAL; goto cleanup_read;}       // args cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_read;}      // the client must be connected to send requests
+    if(!pathname || !size || !buf) {errno=EINVAL; return ERR;}       // args cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op=READ_F;        // sets the operation code to readFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -169,12 +171,12 @@ cleanup_read:
     if(int_buf) free(int_buf);
     if(size) free(size);
     if(*buf) free(*buf);
-    return OP_ERR;
+    return ERR;
 }
 
 int readNFiles(int N, const char* dirname) {
-    if(!dirname) {errno=EINVAL; goto cleanup_readn;}    // dirname cannot be null
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_readn;}      // the client must be connected to send requests
+    if(!dirname) {errno=EINVAL; return ERR;}    // dirname cannot be null
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op = READ_N_F;     // sets the operation code to readNFiles
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -198,8 +200,7 @@ int readNFiles(int N, const char* dirname) {
     // updating the number of files to read
     N = *int_buf;
 
-    if(N>0) {     // if there is at least one file to read
-        while(N>0) {    // repeat until there are no more files to read
+    while(N>0) {    // repeat until there are no more files to read
 
             // receives the size of the name of the file
             size=(size_t*)malloc(sizeof(size_t));
@@ -210,9 +211,9 @@ int readNFiles(int N, const char* dirname) {
             // receives the name of the file
             file_name=(char*)malloc((*size)*sizeof(char));
             if(!file_name) return ERR;
-            readn(fd_sock, (void*)file_name, size);     // gets the size of the file to read
-            if(*size < 0) {errno=EIO; break;}
-            free(size);
+            readn(fd_sock, (void*)file_name, (*size));     // gets the size of the file to read
+            if(!file_name) {errno=EIO; break;}
+            if(size) free(size);
 
             // receives the size of the file to read
             size=(size_t*)malloc(sizeof(size_t));
@@ -221,28 +222,27 @@ int readNFiles(int N, const char* dirname) {
             if(*size < 0) {errno=EIO; break;}
 
             // reading the file
-            if(size==0) (*buf)=NULL;    // empty file, return null as its content
+            if((*size)==0) buf=NULL;    // empty file, return null as its content
             else {  // receives the file requested
-                (*buf)=(void*)malloc((*size)*sizeof(byte));
+                buf=(void*)malloc((*size)*sizeof(byte));
                 if(!buf) return ERR;
-                readn(fd_sock, (*buf), (*size));    // gets the actual file content
+                readn(fd_sock, (void*)buf, (*size));    // gets the actual file content
                 if(!(*buf)) {errno=EIO; break;}
             }
 
             // creating the file in the specified dir
             pathname = build_path_name(dirname, file_name);
             if((fd=open(pathname, O_WRONLY, O_CREAT))==ERR) break;
-            if((write(fd, buf, size))==ERR) break;
+            if((write(fd, (void*)buf, (*size)))==ERR) break;
             if((close(fd))==ERR) return ERR;
 
 
-            free(size);
-            free(file_name);
-            free(buf);  // freeing buf to read next file
-            free(pathname);
+            if(size) free(size);
+            if(file_name) free(file_name);
+            if(buf) free(buf);  // freeing buf to read next file
+            if(pathname) free(pathname);
             N++;
         }
-    }
 
     if(int_buf) free(int_buf);
     if(size) free(size);
@@ -258,13 +258,13 @@ cleanup_readn:
     if(file_name) free(file_name);
     if(buf) free(buf);
     if(pathname) free(pathname);
-    return OP_ERR;
+    return ERR;
 }
 
 
 int writeFile(const char* pathname, const char* dirname) {
-    if(!pathname || !dirname) {errno=EINVAL; goto cleanup_write;}   // args cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_write;}      // the client must be connected to send requests
+    if(!pathname || !dirname) {errno=EINVAL; return ERR;}   // args cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op = WRITE_F;
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -325,13 +325,13 @@ cleanup_write:
     if(int_buf) free(int_buf);
     if(buf) free(buf);
     if(fileStat) free(fileStat);
-    return OP_ERR;
+    return ERR;
 }
 
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname) {
-    if(!pathname || !buf || !dirname) {errno=EINVAL; goto cleanup_append;}       // pathname cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_append;}      // the client must be connected to send requests
+    if(!pathname || !buf || !dirname) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op=WRITE_F_APP;
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -373,13 +373,13 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 // CLEANUP SECTION
 cleanup_append:
     if(int_buf) free(int_buf);
-    return OP_ERR;
+    return ERR;
 }
 
 
 int lockFile(const char* pathname) {
-    if(pathname==NULL) {errno=EINVAL; goto cleanup_lock;}       // pathname cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_lock;}      // the client must be connected to send requests
+    if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op=LOCK_F;        // sets the operation code to lockFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -400,7 +400,7 @@ int lockFile(const char* pathname) {
         if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_lock;}       // if the server couldn't process the size, abort the operation
 
         // communicates pathname
-        writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to lock
+        writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to lock
         readn(fd_sock, (void*)int_buf, sizeof(int));
         if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_lock;}       // if the server could not get the path, abort the operation
 
@@ -416,13 +416,13 @@ int lockFile(const char* pathname) {
 // CLEANUP SECTION
 cleanup_lock:
     if(int_buf) free(int_buf);
-    return OP_ERR;
+    return ERR;
 }
 
 
 int unlockFile(const char* pathname) {
-    if(pathname==NULL) {errno=EINVAL; goto cleanup_unlock;}       // pathname cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_unlock;}      // the client must be connected to send requests
+    if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op=UNLOCK_F;        // sets the operation code to unlockFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -441,7 +441,7 @@ int unlockFile(const char* pathname) {
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_unlock;}       // if the server couldn't process the size, abort the operation
 
     // communicates pathname
-    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to unlock
+    writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to unlock
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_unlock;}       // if the server could not get the path, abort the operation
 
@@ -455,13 +455,13 @@ int unlockFile(const char* pathname) {
 // CLEANUP SECTION
 cleanup_unlock:
     if(int_buf) free(int_buf);
-    return OP_ERR;
+    return ERR;
 }
 
 
 int closeFile(const char* pathname) {
-    if(pathname==NULL) {errno=EINVAL; goto cleanup_close;}       // pathname cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_close;}      // the client must be connected to send requests
+    if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op=CLOSE_F;        // sets the operation code to closeFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -494,13 +494,13 @@ int closeFile(const char* pathname) {
 // CLEANUP SECTION
 cleanup_close:
     if(int_buf) free(int_buf);
-    return OP_ERR;
+    return ERR;
 }
 
 
 int removeFile(const char* pathname) {
-    if(pathname==NULL) {errno=EINVAL; goto cleanup_close;}       // pathname cannot be NULL
-    if(is_connected==0) {errno=ECONNREFUSED; goto cleanup_close;}      // the client must be connected to send requests
+    if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
     op_code op=RM_F;        // sets the operation code to closeFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -519,7 +519,7 @@ int removeFile(const char* pathname) {
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the server couldn't process the size, abort the operation
 
     // communicates pathname
-    writen(fd_sock, (void*)pathname, sizeof(pathname));        // tells the server what file to remove
+    writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to remove
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the server could not get the path, abort the operation
 
@@ -533,7 +533,7 @@ int removeFile(const char* pathname) {
 // CLEANUP SECTION
 cleanup_close:
     if(int_buf) free(int_buf);
-    return OP_ERR;
+    return ERR;
 }
 
 
@@ -557,7 +557,7 @@ short sleep_ms(int duration) {
     return SUCCESS;
 }
 
-char* build_path_name(char* dir, char* name) {
+char* build_path_name(const char* dir, const char* name) {
     if(!dir || !name) return NULL;
     int dirlen = strlen(dir);
     int namelen = strlen(name);

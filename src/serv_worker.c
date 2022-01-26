@@ -20,12 +20,14 @@ void* worker_func(void* arg) {
     int op;     // will hold the operation code representing the current request
 
     while(!hard_close) {
+        LOG_DEBUG("Worker cycle restarting...\n\n");
 
         if((temperr=pthread_mutex_lock(&(requests_queue->queue_mtx)))==ERR)
         {LOG_ERR(temperr, "worker: locking req queue"); exit(EXIT_FAILURE);}
 
         while(!(int_buf=(int*)conc_fifo_pop(requests_queue))) {  // checking for new requests
             if(errno) {LOG_ERR(errno, "worker: reading from req queue"); exit(EXIT_FAILURE);}
+            LOG_DEBUG("Nothing to do here...\n");
 
             if((temperr=pthread_cond_wait(&(requests_queue->queue_cv), &(requests_queue->queue_mtx)))==ERR)
             {LOG_ERR(temperr, "worker: waiting on req queue"); exit(EXIT_FAILURE);}
@@ -35,17 +37,23 @@ void* worker_func(void* arg) {
         {LOG_ERR(temperr, "worker: unlocking req queue"); exit(EXIT_FAILURE);}
 
         client_fd=*int_buf;    // preparing to serve the user's request
-        free(int_buf);
+        if(int_buf) {free(int_buf); int_buf=NULL;}
 
-        if((temperr=readn(client_fd, int_buf, PIPE_MSG_LEN))==ERR)     // getting the request into int_buf
+        int_buf=(int*)malloc(sizeof(int));
+        *int_buf=0; // TODO check
+        LOG_DEBUG("new int value: %d\n", *int_buf);
+        if(!int_buf) {LOG_ERR(errno, "worker: preparing op code read"); exit(EXIT_FAILURE);}
+
+        if((temperr=readn(client_fd, (void*)int_buf, sizeof(int)))==ERR)     // getting the request into int_buf
         {LOG_ERR(EPIPE, "worker: reading client operation"); exit(EXIT_FAILURE);}
 
         op=*int_buf;    // reading the operation code
-        free(int_buf);
+        LOG_DEBUG("Serving request type %d of client %d\n", op, client_fd);   // TODO remove
 
-        if(op==EOF) {   // the client closed the connection
-            int_buf=&client_fd;
-            client_fd*=-1; // tells the manager to close the connection with this client
+        if(op==EOF || op==0) {   // the client closed the connection
+            LOG_DEBUG("Client %d disconnecting...\n\n\n", client_fd);
+            *int_buf=client_fd;
+            (*int_buf)*=-1; // tells the manager to close the connection with this client
             // TODO assiurarsi che funzioni
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe");}
@@ -57,6 +65,7 @@ void* worker_func(void* arg) {
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (open)");}
+            LOG_DEBUG("OPEN_F operation completed\n\n\n");
         }
         else if(op==READ_F) {
             if((temperr=worker_file_read(client_fd))==ERR)
@@ -105,6 +114,7 @@ void* worker_func(void* arg) {
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (unlock)");}
+            LOG_DEBUG("UNLOCK_F operation completed\n\n\n");
         }
         else if(op==RM_F) {
             if((temperr=worker_file_remove(client_fd))==ERR)
@@ -122,6 +132,7 @@ void* worker_func(void* arg) {
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (close)");}
         }
+        if(int_buf) {free(int_buf); int_buf=NULL;}  // resetting int_buf to NULL value
     }
 
     if(int_buf) free(int_buf);
@@ -138,6 +149,8 @@ static int worker_file_open(int client_fd) {
     char* pathname=NULL;     // will hold the pathname of the file to open
     int path_len;   // length of the pathname
     int flags;  // will hold the operation flags the client passed
+    file* new_file=NULL;    // will hold the new file's data (if it's an insert)
+    file** subst_files=NULL;    // will hold the returned files (in case of an insert in a full cache)
 
     *int_buf=SUCCESS;   // the request has been accepted
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
@@ -152,7 +165,9 @@ static int worker_file_open(int client_fd) {
     if(!pathname) return ERR;
 
     // reading the pathname
+    LOG_DEBUG("Reading pathname...\n");
     if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_open;
+    LOG_DEBUG("Pathname read: %s\n", pathname);
     if(!pathname) goto cleanup_w_open;
     *int_buf=SUCCESS;   // step OK
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
@@ -163,25 +178,30 @@ static int worker_file_open(int client_fd) {
     *int_buf=SUCCESS;   // step OK
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
 
-    if(flags==0) {  // normal open
-        if((temperr=sc_lookup(server_cache, pathname, OPEN_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
-            if(temperr==ERR) return ERR;
+    // if O_CREATE flag was used, attempt to insert the file in the cache
+    if(flags==O_CREATE || flags==(O_CREATE|O_LOCK)) {
+        new_file=file_create(pathname);
+        if(!new_file) return ERR;   // mem err
+        if((temperr=sc_cache_insert(server_cache, new_file, &subst_files))!=SUCCESS) {
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
             goto cleanup_w_open;
         }
     }
+    // TODO restituire eventuali files sostituiti
+    LOG_DEBUG("FILE CREATED!\n");
 
-    else if(flags==O_CREATE || flags==(O_CREATE|O_LOCK)) {  // open with create
-        if((temperr=sc_lookup(server_cache, pathname, OPEN_C_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
-            if(temperr==ERR) return ERR;
-            *int_buf=temperr;   // preparing the error message for the client
-            writen(client_fd, (void*)int_buf, sizeof(int));
-            goto cleanup_w_open;
-        }
+    // open the (eventually created) file
+    if((temperr=sc_lookup(server_cache, pathname, OPEN_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if(temperr==ERR) return ERR;
+        *int_buf=temperr;   // preparing the error message for the client
+        writen(client_fd, (void*)int_buf, sizeof(int));
+        goto cleanup_w_open;
     }
+    LOG_DEBUG("FILE OPENED!\n");
 
-    if(flags==O_LOCK || flags==(O_CREATE|O_LOCK)) { // open with lock
+    // if O_LOCK flag was used, try and lock the file
+    if(flags==O_LOCK || flags==(O_CREATE|O_LOCK)) {
         if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
             if(temperr==ERR) return ERR;
             *int_buf=temperr;   // preparing the error message for the client
@@ -189,19 +209,25 @@ static int worker_file_open(int client_fd) {
             goto cleanup_w_open;
         }
     }
+    LOG_DEBUG("FILE LOCKED!\n");
 
     *int_buf=SUCCESS;   // tell the client the operation succeeded
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
+    LOG_DEBUG("SUCCESS RETURNED!\n");
 
 
-    free(int_buf);
-    free(pathname);
+    if(int_buf) free(int_buf);
+    if(pathname) free(pathname);
+    if(subst_files) free(subst_files);
+    LOG_DEBUG("RETURNING from OPEN operation\n");
     return SUCCESS;
 
 // ERROR CLEANUP
 cleanup_w_open:
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
+    if(new_file) free(new_file);
+    if(subst_files) free(subst_files);
     return -2;   // client-side error, server can keep working
 }
 
@@ -539,6 +565,7 @@ static int worker_file_unlock(int client_fd) {
     // reading the pathname
     if((readn(client_fd, (void*)pathname, path_len))==ERR) goto cleanup_w_unlock;
     if(!pathname) goto cleanup_w_unlock;
+    LOG_DEBUG("hey whatsup\n\n");
     *int_buf=SUCCESS;   // step OK
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
 

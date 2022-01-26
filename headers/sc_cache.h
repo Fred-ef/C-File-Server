@@ -27,7 +27,7 @@ typedef struct sc_cache {
 typedef struct file {
     char* name;     // represents the file's identifier inside the file server
     // HUFFMAN TREE CONTAINING THE DECOMPRESSION INFORMATION
-    int file_size;
+    unsigned long file_size;
     byte* data;     // represents the actual information contained in the file
     byte f_lock;     // flag indicating if and by whom the file is currently locked
     byte f_open;     // flag indicating if the file is currently open
@@ -41,5 +41,6 @@ sc_cache* sc_cache_create(int, int);                // returns an empty sc-cache
 int sc_cache_insert(sc_cache*, file*, file***);      // pushes a file in the cache, as a "recently used" file, getting the expelled files
 int sc_algorithm(sc_cache*, unsigned, file***, bool);         // second chance replacement algorithm
 int sc_lookup(sc_cache*, char*, op_code, const int*, byte**, byte*, unsigned*);      // executes the request specified in the operation code
+file* file_create(char* pathname);      // returns an empty file with pathname as its name
 
 #endif // sc_cache_h

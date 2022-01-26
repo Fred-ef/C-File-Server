@@ -111,6 +111,9 @@ int main(int argc, char* argv[]) {
 
 
     // #################### SERVER MAIN LOOP ####################
+    LOG_DEBUG("Server socket fd: %d\n", fd_sk);
+    LOG_DEBUG("Pipe read fd: %d\n", fd_pipe_read);
+    LOG_DEBUG("Pipe write fd: %d\n\n", fd_pipe_write);
 
     while(!soft_close && !hard_close) {
         rd_set=curr_set;    // re-setting the ready fd set
@@ -124,6 +127,7 @@ int main(int argc, char* argv[]) {
             
             if(FD_ISSET(i, &rd_set)) {  // found a ready fd
                   // start checking for which fd is ready
+                  LOG_DEBUG("USER %d CONNECTED!\n", i);    // TODO remove
 
                   if(i==fd_sk) {    // connection request
                       if((fd_cl=accept(fd_sk, NULL, 0))==ERR)
@@ -133,6 +137,7 @@ int main(int argc, char* argv[]) {
                   }
 
                   else if(i==fd_pipe_read) {    // worker-manager communication
+                    // reading the message
                     if((temperr=readn(fd_pipe_read, int_buf, PIPE_MSG_LEN))==ERR) {
                         LOG_ERR(EPIPE, "manager: reading from pipe");
                         goto cleanup_x;
@@ -141,12 +146,13 @@ int main(int argc, char* argv[]) {
                     if(!int_buf || !(*int_buf)) {LOG_ERR(EPIPE, "manager: elaborating pipe value"); goto cleanup_x;}
                     // else elaborate the result
                     if(*int_buf<0) {     // the client disconnected
+                        LOG_DEBUG("MANAGER: client %d just disconnected!\n", *int_buf);
                         (*int_buf)*=-1;    // inverting sign to get the actual fd
                         FD_CLR(*int_buf, &curr_set);     // removing the fd from the curr fd set
                         close(*int_buf);     // closing communication
                     }
                     // client request served
-                    else FD_SET(*int_buf, &curr_set);    // reinserting the client fd in the curr fd set
+                    else {LOG_DEBUG("MANAGER: client %d served!\n", *int_buf); FD_SET(*int_buf, &curr_set);}    // reinserting the client fd in the curr fd set
                   }
 
                   else {    // generic request by a connected client
@@ -167,6 +173,7 @@ int main(int argc, char* argv[]) {
                           LOG_ERR(temperr, "manager: unlocking request queue"); goto cleanup_x;
                       }
                       FD_CLR(i, &curr_set);     // remove client's fd from curr fd set until his request is served
+                      LOG_DEBUG("Dispatching request\n");   // TODO remove
                   }
             }
         }

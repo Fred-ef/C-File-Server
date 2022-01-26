@@ -15,7 +15,10 @@ int ll_insert_head(llist* list, void* data, int(*cmp_fnc)(const void*, const voi
     if(!list) {errno=EINVAL; return ERR;}     // Uninitialized list
     if(!data) {errno=EINVAL; return ERR;}   // invalid data
 
-    if(ll_search(list, data, cmp_fnc)) return SUCCESS;
+    if(ll_search(list, data, cmp_fnc)) {
+        if(data) free(data);
+        return SUCCESS;
+    }
 
     conc_node newelement=conc_node_create(data);
     if(!newelement) return ERR;     // errno already set

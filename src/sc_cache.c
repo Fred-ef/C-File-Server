@@ -19,6 +19,8 @@ static int int_ptr_cmp(const void* x, const void* y);
 // TODO -   controllare che si liberino le code di file aperti
 // TODO -   controllare che si liberi la copia dei file letti
 // TODO -   aggiungere cleanup per pulire l'intera cache dai file
+// TODO -   restituire file quando si rimpiazza
+// TODO -   aggiungere rimpiazzo file per modifica troppo grande
 char** strings=NULL;
 
 
@@ -56,7 +58,7 @@ cleanup_create:
 
 int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
     if(!cache || !new_file || !replaced_files) {LOG_ERR(EINVAL, "insert: cache_push args cannot be NULL"); return ERR;}
-    if(!(cache->ht)) {LOG_ERR(EINVAL, "insert: cache's hashtable not initialized");}
+    if(!(cache->ht)) {LOG_ERR(EINVAL, "insert: cache's hashtable not initialized"); return ERR;}
 
     int temperr;    // used for error codes
     short res=PROBING;    // termination condition
@@ -243,6 +245,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
 
         // if there's a match, perform the correct operation base on the op_code
         else if(!strcmp(file_name, ((file*)ht->table[idx].entry)->name)) {
+            LOG_DEBUG("\nCHECKPOINT\n");
             temp_file=(file*)ht->table[idx].entry;  // shortcut to current file
             ht->table[idx].r_used=1;    // since the file has just been referred, update its used-bit
 
@@ -301,6 +304,25 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
 }
 
 
+// creates a new file with @pathname as its name and returns it
+file* file_create(char* pathname) {
+    file* new_file=(file*)malloc(sizeof(file));
+    new_file->data=NULL;
+    new_file->f_lock=0;
+    new_file->f_open=0;
+    new_file->f_write=0;
+    new_file->file_size=0;
+    new_file->name=(char*)calloc(strlen(pathname), sizeof(char));
+    if(!new_file) return NULL;  // mem error
+    strcpy((new_file->name), pathname);
+    new_file->open_list=ll_create();
+    if(!(new_file->open_list)) return NULL; // mem error
+
+    return new_file;
+}
+
+
+
 // helper function: opens the file for the user; if it was already opened, returns successfully
 static int open_file(file* file, const int* usr_id) {
     int temperr;
@@ -311,6 +333,7 @@ static int open_file(file* file, const int* usr_id) {
 
     if((temperr=ll_insert_head(file->open_list, (void*)real_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
     return ERR;   // fatal error, errno already set by the call
+
 
     return SUCCESS;
 }
@@ -354,12 +377,15 @@ static int lock_file(file* file, const int* usr_id) {
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
     file->f_lock=(*usr_id);    // locks the file for the user
+
+
     return SUCCESS;
 }
 
 
 // helper function: if the lock is held by the user, releases it; else, just returns successfully
 static int unlock_file(file* file, const int* usr_id) {
+    LOG_DEBUG("UNLOCKING!!!\n");
     if(file->f_lock && (file->f_lock!=(*usr_id))) return SUCCESS;  // user wasn't holding any lock
 
     file->f_lock=0;     // resets lock

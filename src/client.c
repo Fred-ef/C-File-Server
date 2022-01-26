@@ -41,14 +41,14 @@ int main(int argc, char* argv[]) {
     short temperr;      // used for error codes
 
     if((temperr=parse_command(argv))==ERR) {
-        if(save_dir) free(save_dir);
-        if(miss_dir) free(miss_dir);
+        if(save_dir) {free(save_dir); save_dir=NULL;}
+        if(miss_dir) {free(miss_dir); miss_dir=NULL;}
         return ERR;
     }
 
     
-    if(save_dir) free(save_dir);
-    if(miss_dir) free(miss_dir);
+    if(save_dir) {free(save_dir); save_dir=NULL;}
+    if(miss_dir) {free(miss_dir); miss_dir=NULL;}
     return SUCCESS;         // successful termination
 }
 
@@ -236,12 +236,12 @@ static int parse_command(char** commands) {
         sleep(sleep_time);      // if -t has been used, sleep for the time specified
     }
 
-    // closeConnection(sockname); // TODO UNCOMMENT
+    closeConnection(sockname);
     return SUCCESS;
 
     // ERROR CLEANUP SECTION
 cleanup:
-    // closeConnection(sockname);
+    closeConnection(sockname);
     return ERR;
 }
 
@@ -264,7 +264,6 @@ static void print_help() {
 
 // -f | establishes the connection to the file-server
 static int set_sock(char* sockname) {
-    /*
     int temperr;    // used for error codes
 
     if(!sockname) {
@@ -281,7 +280,7 @@ static int set_sock(char* sockname) {
 
     if((clock_gettime(CLOCK_REALTIME, timer))==ERR) {
         perror("-f - pre-connection: getting clock time");
-        free(timer);
+        if(timer) {free(timer); timer=NULL;}
         return ERR;
     }
 
@@ -289,31 +288,28 @@ static int set_sock(char* sockname) {
 
     if((temperr=openConnection(sockname, conn_delay, *timer))==ERR) {
         perror("-f - connecting");
-        free(timer);
+        if(timer) {free(timer); timer=NULL;}
         return ERR;
     }
 
-    free(timer);
-    */
+    if(timer) {free(timer); timer=NULL;}
     return SUCCESS;
 }
 
 
 // -w | sends n (or all) files from the specified directory to the file-server
 static int send_dir(char* arg) {
-    /*
     int n=0;
     int temperr;
     char* token;
     char* saveptr;
     char* dir_path=(char*)malloc(FILE_PATH_MAX*sizeof(char));
-    if(!dir_path) { perror("getting dir path"); return ERR; }
+    if(!dir_path) { LOG_ERR(errno, "getting dir path"); return ERR; }
 
 
     if((token=strtok_r(arg, ",", &saveptr))==NULL) {
-        errno=EINVAL;
-        perror("-w argument was invalid");
-        free(dir_path);
+        LOG_ERR(EINVAL, "-w argument was invalid");
+        if(dir_path) free(dir_path);
         return ERR;
     }
     strcpy(dir_path, token);     // copy the directory
@@ -323,25 +319,24 @@ static int send_dir(char* arg) {
     if(token) n=atoi(token);
     if(n==0) n=__INT_MAX__;
 
-    printf("Dir chosen: %s;\tNumber of files: %d\n", dir_path, n);
+    LOG_DEBUG("Dir chosen: %s;\tNumber of files: %d\n", dir_path, n);
 
     DIR* dir_obj;
     if(!(dir_obj=opendir(dir_path))) {
-        perror("-w - couldn't open directory");
-        free(dir_path);
+        LOG_ERR(errno, "-w - couldn't open directory");
+        if(dir_path) free(dir_path);
         return ERR;
     }
 
     if((temperr=visit_folder(dir_obj, n))==ERR) {
-        free(dir_path);
-        free(dir_obj);
+        if(dir_path) free(dir_path);
+        if(dir_obj) free(dir_obj);
         return ERR;
     }
 
-    free(dir_path);
-    free(dir_obj);
+    if(dir_path) free(dir_path);
+    if(dir_obj) free(dir_obj);
     return SUCCESS;
-    */
 }
 
 
@@ -357,11 +352,11 @@ static int send_files(char* arg) {
         return ERR;
     }
 
-    while(token) {/*
+    while(token) {
         if((temperr=writeFile(token, miss_dir))==ERR) {
             perror("-W - error while writing files");
             return ERR;
-        }*/
+        }
         LOG_DEBUG("Sending file: %s\n", token);
         token=strtok_r(NULL, ",", &saveptr);
     }
@@ -436,12 +431,10 @@ static int read_files(char* arg) {
 
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
-        /*  TODO UNCOMMENT
-        if((temperr=readFile(token, &buffer, &size))==ERR) {
+        if((temperr=readFile(token, &buffer, size))==ERR) {
             perror("-r - error while writing files");
             goto cleanup_2;
         }
-        */
         // if a save folder has been specified, save the file obtained there; else, discard it
         if(save_dir) {
             // if the file has been successfully retrieved, write it in the specified folder
@@ -464,22 +457,23 @@ static int read_files(char* arg) {
             }
         }
         printf("Reading file: %s\n", token);
-        if(buffer) free(buffer);
+        if(buffer) {free(buffer); buffer=NULL;}
         token=strtok_r(NULL, ",", &saveptr);
     }
 
-    if(token) free(token);
-    if(saveptr) free(saveptr);
-    if(pathname) free(pathname);
-    if(size) free(size);
+    if(token) {free(token); token=NULL;}
+    if(saveptr) {free(saveptr); saveptr=NULL;}
+    if(pathname) {free(pathname); pathname=NULL;}
+    if(buffer) {free(buffer); buffer=NULL;}
+    if(size) {free(size); size=NULL;}
     return SUCCESS;
 
 // CLEANUP
 cleanup_1:
-    if(size) free(size);
-    if(buffer) free(buffer);
+    if(size) {free(size); size=NULL;}
+    if(buffer) {free(buffer); buffer=NULL;}
 cleanup_2:
-    if(pathname) free(pathname);
+    if(pathname) {free(pathname); pathname=NULL;}
     return ERR;
 }
 
@@ -502,13 +496,11 @@ static int read_n_files(char* arg) {
         if(token) n=atoi(token);
     }
 
-    /* TODO uncomment
     // send the request to read the n files
     if((result=readNFiles(n, save_dir))==ERR) {
         perror("-R - error reading files");
         return ERR;
     }
-    */
 
     return result;
 }
@@ -531,19 +523,15 @@ static int lock_files(char* arg) {
     int temperr;
 
     if((token=strtok_r(arg, ",", &saveptr))==NULL) {
-        errno=EINVAL;
-        perror("-l - argument was invalid");
+        LOG_ERR(EINVAL, "-l - argument was invalid");
         return ERR;
     }
 
     while(token) {
-        /*
         if((temperr=lockFile(token))==ERR) {
-            perror("-l - error while locking files");
+            LOG_ERR(errno, "-l - error while locking files");
             return ERR;
         }
-        */
-        LOG_DEBUG("Locking file: %s\n", token);
         token=strtok_r(NULL, ",", &saveptr);
     }
 
@@ -558,19 +546,15 @@ static int unlock_files(char* arg) {
     int temperr;
 
     if((token=strtok_r(arg, ",", &saveptr))==NULL) {
-        errno=EINVAL;
-        perror("-u - argument was invalid");
+        LOG_ERR(EINVAL, "-u - argument was invalid");
         return ERR;
     }
 
     while(token) {
-        /*
         if((temperr=unlockFile(token))==ERR) {
-            perror("-u - error while unlocking files");
+            LOG_ERR(errno, "-u - error while unlocking files");
             return ERR;
         }
-        */
-        LOG_DEBUG("Unlocking file: %s\n", token);
         token=strtok_r(NULL, ",", &saveptr);
     }
 
@@ -585,18 +569,15 @@ static int remove_files(char* arg) {
     int temperr;
 
     if((token=strtok_r(arg, ",", &saveptr))==NULL) {
-        errno=EINVAL;
-        perror("-c - argument was invalid");
+        LOG_ERR(EINVAL, "-c - argument was invalid");
         return ERR;
     }
 
     while(token) {
-        /*
         if((temperr=removeFile(token))==ERR) {
-            perror("-c - error while removing files");
+            LOG_ERR(errno, "-c - error while removing files");
             return ERR;
         }
-        */
         LOG_DEBUG("Removing file: %s\n", token);
         token=strtok_r(NULL, ",", &saveptr);
     }
@@ -614,11 +595,11 @@ static int visit_folder(DIR* dir_obj, int rem_files) {
 
     // allocating the string that will be used to save files' paths
     char* file_name=(char*)malloc(FILE_PATH_MAX*sizeof(char));
-    if(!file_name) return ERR;
+    if(!file_name) {LOG_ERR(errno, "-w - memerr"); return ERR;}
     // getting current dir path
     if((getcwd(file_name, FILE_PATH_MAX))==NULL) {
-        perror("-w - getting dir path");
-        free(file_name);
+        LOG_ERR(errno, "-w - getting dir path");
+        if(file_name) free(file_name);
         return ERR;
     }
     // completing current dir path with '/' symbol
@@ -644,22 +625,23 @@ static int visit_folder(DIR* dir_obj, int rem_files) {
         // if it's a dir, visit it recursively
         if(curr_file->d_type==DT_DIR) {
             if(!(next_dir=opendir(file_name))) {
-                perror("-w - couldn't open directory");
-                free(file_name);
+                LOG_ERR(errno, "-w - couldn't open directory");
+                if(file_name) free(file_name);
                 return ERR;
             }
             if((temperr=visit_folder(next_dir, rem_files))==ERR) {
-                free(file_name);
-                free(next_dir);
+                LOG_ERR(errno, "-w - switching dir");
+                if(file_name) free(file_name);
+                if(next_dir) free(next_dir);
                 return ERR;
             }
-            free(next_dir);
+            if(next_dir) {free(next_dir); next_dir=NULL;}
         }
         // if it's a file, send it to the file-server as a new-file
         else if(curr_file->d_type==DT_REG) {
             if((temperr=openFile(file_name, O_CREATE|O_LOCK))==ERR) {
-                perror("-w - could not send all files");
-                free(file_name);
+                LOG_ERR(errno, "-w - could not send all files");
+                if(file_name) free(file_name);
                 return ERR;
             }
             rem_files--;    // decrement remaining files counter by 1
@@ -667,10 +649,10 @@ static int visit_folder(DIR* dir_obj, int rem_files) {
         file_name[i]='\0';      // re-setting null-terminator position to current dir path
     }
     if(errno) {     // an error has occurred during the visit
-        perror("-w - error while visiting the dir tree");
-        free(file_name);
+        LOG_ERR(errno, "-w - error while visiting the dir tree");
+        if(file_name) {free(file_name); file_name=NULL;}
     }
 
-    free(file_name);
+    if(file_name) {free(file_name); file_name=NULL;}
     return SUCCESS;
 }
