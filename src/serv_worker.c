@@ -145,7 +145,7 @@ void* worker_func(void* arg) {
 
 static int worker_file_open(int client_fd) {
     int i;
-    int res=0;  // will hold the result of the operation
+    int res=SUCCESS;  // will hold the result of the operation
     int temperr;
     int* int_buf=(int*)malloc(sizeof(int));
     if(!int_buf) return ERR;    // errno already set by the call
@@ -215,7 +215,7 @@ static int worker_file_open(int client_fd) {
     LOG_DEBUG("FILE CREATED, OPENED & LOCKED!\n");
 
     *int_buf=SUCCESS;   // tell the client the operation succeeded
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
 
 
     // ##### RETURNING EXPELLED FILES #####
@@ -251,7 +251,7 @@ static int worker_file_open(int client_fd) {
     }
 
 
-    if(res) goto cleanup_w_open;    // if res!=0, something went wrong
+    if(res!=SUCCESS) goto cleanup_w_open;    // if res!=SUCCESS, something went wrong
 
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
@@ -391,6 +391,7 @@ cleanup_w_read:
 
 static int worker_file_write(int client_fd) {
     int i;
+    int res=SUCCESS;  // will hold the result of the operation
     int temperr;
     int* int_buf=(int*)malloc(sizeof(int));
     if(!int_buf) return ERR;    // errno already set by the call
@@ -437,12 +438,13 @@ static int worker_file_write(int client_fd) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
-        goto cleanup_w_write;
+        res=ERR;
     }
 
-    // returning a success message
-    *int_buf=SUCCESS;
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+    if(res==SUCCESS) { // returning a success message if there weren't error in the lookup-write op
+        *int_buf=SUCCESS;
+        if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
+    }
 
 
     // ##### RETURNING SUBSTITUTED FILES #####
@@ -454,17 +456,18 @@ static int worker_file_write(int client_fd) {
         }
         subst_files_num=i;
     }
-    *int_buf=subst_files_num;     // telling the client how many files to expect
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+    LOG_DEBUG("\nWARNING: %d files have been expelled\n\n", subst_files_num);   // TODO REMOVE
+    // telling the client how many files to expect
+    if((writen(client_fd, (void*)&subst_files_num, sizeof(unsigned)))==ERR) res=ERR;
 
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
         unsigned temp_path_len=strlen(temp->name);
-        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) goto cleanup_w_write;
-        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) goto cleanup_w_write;
-        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) goto cleanup_w_write;
-        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) goto cleanup_w_write;
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);
         if(temp->name) free(temp->name);
@@ -475,6 +478,8 @@ static int worker_file_write(int client_fd) {
         free(temp);
     }
 
+
+    if(res!=SUCCESS) goto cleanup_w_write;   // if res!=SUCCESS, something went wrong
 
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
@@ -494,6 +499,7 @@ cleanup_w_write:
 
 static int worker_file_write_app(int client_fd) {
     int i;
+    int res=SUCCESS;  // will hold the result of the operation
     int temperr;
     int* int_buf=(int*)malloc(sizeof(int));
     if(!int_buf) return ERR;    // errno already set by the call
@@ -540,12 +546,13 @@ static int worker_file_write_app(int client_fd) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
-        goto cleanup_w_write_app;
+        res=ERR;
     }
 
-    // returning a success message
-    *int_buf=SUCCESS;
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+    if(res==SUCCESS) { // returning a success message if there weren't error in the lookup-write op
+        *int_buf=SUCCESS;
+        if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
+    }
 
 
     // ##### RETURNING SUBSTITUTED FILES #####
@@ -557,17 +564,18 @@ static int worker_file_write_app(int client_fd) {
         }
         subst_files_num=i;
     }
-    *int_buf=subst_files_num;     // telling the client how many files to expect
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+    LOG_DEBUG("\nWARNING: %d files have been expelled\n\n", subst_files_num);   // TODO REMOVE
+    // telling the client how many files to expect
+    if((writen(client_fd, (void*)&subst_files_num, sizeof(unsigned)))==ERR) res=ERR;
 
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
         unsigned temp_path_len=strlen(temp->name);
-        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) goto cleanup_w_write_app;
-        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) goto cleanup_w_write_app;
-        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) goto cleanup_w_write_app;
-        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) goto cleanup_w_write_app;
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);
         if(temp->name) free(temp->name);
@@ -577,6 +585,9 @@ static int worker_file_write_app(int client_fd) {
         }
         free(temp);
     }
+
+
+    if(res!=SUCCESS) goto cleanup_w_write_app;   // if res!=SUCCESS, something went wrong
 
 
     if(int_buf) free(int_buf);

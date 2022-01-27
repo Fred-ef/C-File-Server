@@ -622,7 +622,7 @@ static int visit_folder(char* starting_dir, int* rem_files) {
                 goto cleanup_vis_fold;
             }
         }
-        // if it's a file, send it to the file-server as a new-file
+        // if it's a file, send it to the file-server as a new-file or append it if it already exists
         else if(curr_elem_p->d_type==DT_REG) {
             if((temperr=openFile(curr_elem_name, O_CREATE|O_LOCK))==ERR) {
                 LOG_ERR(errno, "-w - could not send all files");
