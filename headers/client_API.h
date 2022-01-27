@@ -27,6 +27,9 @@ extern short fd_sock;       // holds the file descriptor representing the connec
 extern char* serv_sk;        // holds the address to which the clients connect in the openConnection call
 extern bool is_connected;       // set to 1 when the connection with the server is established, 0 otherwise
 
+char* save_dir;    // used to specify the folder in which to save files retrieved from the file-server
+char* miss_dir;    // used to specify the folder in which to save files discarded by the file-server
+
 
 /* ########################## Main functions ################################## */
 

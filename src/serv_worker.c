@@ -144,6 +144,8 @@ void* worker_func(void* arg) {
 // ########## HELPER FUNCTIONS ##########
 
 static int worker_file_open(int client_fd) {
+    int i;
+    int res=0;  // will hold the result of the operation
     int temperr;
     int* int_buf=(int*)malloc(sizeof(int));
     if(!int_buf) return ERR;    // errno already set by the call
@@ -151,7 +153,8 @@ static int worker_file_open(int client_fd) {
     int path_len;   // length of the pathname
     int flags;  // will hold the operation flags the client passed
     file* new_file=NULL;    // will hold the new file's data (if it's an insert)
-    file** subst_files=NULL;    // will hold the returned files (in case of an insert in a full cache)
+    file** subst_files=NULL;    // will hold the returned files (in the case of an insert in a full cache)
+    unsigned subst_files_num=0;   // will hold the number of returned files
 
     *int_buf=SUCCESS;   // the request has been accepted
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
@@ -184,28 +187,29 @@ static int worker_file_open(int client_fd) {
         new_file=file_create(pathname);
         if(!new_file) return ERR;   // mem err
         if((temperr=sc_cache_insert(server_cache, new_file, &subst_files))!=SUCCESS) {
-            *int_buf=errno;   // preparing the error message for the client
+            if(errno!=EFBIG && errno!=EEXIST && errno!=ENOSPC) return ERR;  // fatal error
+            *int_buf=errno; // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
-            goto cleanup_w_open;
+            if(new_file) free(new_file);
+            res=ERR; goto return_expelled_files;
         }
     }
-    // TODO restituire eventuali files sostituiti
 
     // open the (eventually created) file
-    if((temperr=sc_lookup(server_cache, pathname, OPEN_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
-        if(temperr==ERR) return ERR;
+    if((temperr=sc_lookup(server_cache, pathname, OPEN_F, &client_fd, NULL, NULL, NULL, NULL))!=SUCCESS) {
+        if(temperr==ERR) return ERR;    // fatal error
         *int_buf=errno;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
-        goto cleanup_w_open;
+        res=ERR; goto return_expelled_files;
     }
 
     // if O_LOCK flag was used, try and lock the file
     if(flags==O_LOCK || flags==(O_CREATE|O_LOCK)) {
-        if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+        if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL, NULL))!=SUCCESS) {
             if(temperr==ERR) return ERR;
             *int_buf=temperr;   // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
-            goto cleanup_w_open;
+            res=ERR; goto return_expelled_files;
         }
     }
     LOG_DEBUG("FILE CREATED, OPENED & LOCKED!\n");
@@ -213,6 +217,41 @@ static int worker_file_open(int client_fd) {
     *int_buf=SUCCESS;   // tell the client the operation succeeded
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
 
+
+    // ##### RETURNING EXPELLED FILES #####
+    return_expelled_files:
+
+    if(subst_files) {   // if the subst files array has been allocated, some files have been expelled
+        // getting the number of files removed from the cache
+        for(i=0; i<(server_cache->max_file_number); i++) {
+            if(subst_files[i]==NULL) break;
+        }
+        subst_files_num=i;
+    }
+    LOG_DEBUG("\nWARNING: %d files have been expelled\n\n", subst_files_num);   // TODO REMOVE
+    // telling the client how many files to expect
+    if((writen(client_fd, (void*)&subst_files_num, sizeof(unsigned)))==ERR) res=ERR;
+
+    // sending the substituted files back to the client
+    for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
+        file* temp=subst_files[i];
+        unsigned temp_path_len=strlen(temp->name);
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
+        // deallocating file from memory
+        if(temp->data) free(temp->data);
+        if(temp->name) free(temp->name);
+        if(temp->open_list) {
+            temperr=ll_dealloc_full(temp->open_list);
+            if(temperr==ERR) return ERR;    // fatal error
+        }
+        free(temp);
+    }
+
+
+    if(res) goto cleanup_w_open;    // if res!=0, something went wrong
 
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
@@ -223,7 +262,6 @@ static int worker_file_open(int client_fd) {
 cleanup_w_open:
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
-    if(new_file) free(new_file);
     if(subst_files) free(subst_files);
     return -2;   // client-side error, server can keep working
 }
@@ -237,7 +275,7 @@ static int worker_file_read(int client_fd) {
     int path_len;   // length of the pathname
 
     byte* data_read=NULL;   // will contain the returned file
-    int* bytes_read=NULL;  // will contain the size of the returned file
+    unsigned bytes_read=0;  // will contain the size of the returned file
 
     *int_buf=SUCCESS;   // the request has been accepted
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
@@ -259,10 +297,7 @@ static int worker_file_read(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
 
     // getting the file from the cache
-    bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
-    if(!bytes_read) return ERR;
-    (*bytes_read)=0;    // setting a default value
-    if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, &bytes_read, NULL))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -270,17 +305,16 @@ static int worker_file_read(int client_fd) {
     }
 
     // communicating the size of the file to read
-    if((writen(client_fd, (void*)bytes_read, sizeof(int)))==ERR) goto cleanup_w_read;
+    if((writen(client_fd, (void*)&bytes_read, sizeof(unsigned)))==ERR) goto cleanup_w_read;
 
     // sending the file (ONLY IF it is not empty)
-    if((*bytes_read))
-        if((writen(client_fd, (void*)data_read, (*bytes_read)))==ERR) goto cleanup_w_read;
+    if(bytes_read)
+        if((writen(client_fd, (void*)data_read, bytes_read))==ERR) goto cleanup_w_read;
     
 
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
     if(data_read) free(data_read);
-    if(bytes_read) free(bytes_read);
     return SUCCESS;
 
 // ERROR CLEANUP
@@ -288,7 +322,6 @@ cleanup_w_read:
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
     if(data_read) free(data_read);
-    if(bytes_read) free(bytes_read);
     return -2;   // client-side error, server can keep working
 }
 
@@ -326,7 +359,7 @@ static int worker_file_readn(int client_fd) {
     bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
     if(!bytes_read) return ERR;
     (*bytes_read)=0;    // setting a default value
-    if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read, NULL))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -357,6 +390,7 @@ cleanup_w_read:
 }
 
 static int worker_file_write(int client_fd) {
+    int i;
     int temperr;
     int* int_buf=(int*)malloc(sizeof(int));
     if(!int_buf) return ERR;    // errno already set by the call
@@ -364,6 +398,8 @@ static int worker_file_write(int client_fd) {
     int path_len;   // length of the pathname
     unsigned bytes_written;    // dimension of the file
     byte* data_written=NULL;     // file data
+    file** subst_files=NULL;    // will hold the returned files (in the case of a write in a full cache)
+    unsigned subst_files_num=0;   // will hold the number of returned files
 
 
     *int_buf=SUCCESS;   // the request has been accepted
@@ -386,8 +422,7 @@ static int worker_file_write(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
 
     // reading the file size
-    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
-    bytes_written=*int_buf;
+    if((readn(client_fd, (void*)&bytes_written, sizeof(unsigned)))==ERR) goto cleanup_w_write;
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
 
@@ -398,7 +433,7 @@ static int worker_file_write(int client_fd) {
     if(!data_written) goto cleanup_w_write;
 
     // writing the file into the cache
-    if((temperr=sc_lookup(server_cache, pathname, WRITE_F, &client_fd, NULL, data_written, &bytes_written))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, WRITE_F, &client_fd, NULL, data_written, &bytes_written, &subst_files))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -410,9 +445,41 @@ static int worker_file_write(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
 
 
+    // ##### RETURNING SUBSTITUTED FILES #####
+
+    if(subst_files) {   // if the subst files array has been allocated, 
+        // getting the number of files removed from the cache
+        for(i=0; i<(server_cache->max_file_number); i++) {
+            if(subst_files[i]==NULL) break;
+        }
+        subst_files_num=i;
+    }
+    *int_buf=subst_files_num;     // telling the client how many files to expect
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
+
+    // sending the substituted files back to the client
+    for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
+        file* temp=subst_files[i];
+        unsigned temp_path_len=strlen(temp->name);
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) goto cleanup_w_write;
+        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) goto cleanup_w_write;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) goto cleanup_w_write;
+        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) goto cleanup_w_write;
+        // deallocating file from memory
+        if(temp->data) free(temp->data);
+        if(temp->name) free(temp->name);
+        if(temp->open_list) {
+            temperr=ll_dealloc_full(temp->open_list);
+            if(temperr==ERR) return ERR;    // fatal error
+        }
+        free(temp);
+    }
+
+
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
     if(data_written) free(data_written);
+    if(subst_files) free(subst_files);
     return SUCCESS;
 
 // CLEANUP SECTION
@@ -420,11 +487,13 @@ cleanup_w_write:
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
     if(data_written) free(data_written);
+    if(subst_files) free(subst_files);
     return -2;
 }
 
 
 static int worker_file_write_app(int client_fd) {
+    int i;
     int temperr;
     int* int_buf=(int*)malloc(sizeof(int));
     if(!int_buf) return ERR;    // errno already set by the call
@@ -432,6 +501,8 @@ static int worker_file_write_app(int client_fd) {
     int path_len;   // length of the pathname
     unsigned bytes_written;    // dimension of the write block
     byte* data_written=NULL;     // write block data
+    file** subst_files=NULL;    // will hold the returned files (in the case of a write in a full cache)
+    unsigned subst_files_num=0;   // will hold the number of returned files
 
 
     *int_buf=SUCCESS;   // the request has been accepted
@@ -454,8 +525,7 @@ static int worker_file_write_app(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
 
     // reading the write block size
-    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
-    bytes_written=*int_buf;
+    if((readn(client_fd, (void*)&bytes_written, sizeof(unsigned)))==ERR) goto cleanup_w_write_app;
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
 
@@ -466,7 +536,7 @@ static int worker_file_write_app(int client_fd) {
     if(!data_written) goto cleanup_w_write_app;
 
     // writing the file into the cache
-    if((temperr=sc_lookup(server_cache, pathname, WRITE_F_APP, &client_fd, NULL, data_written, &bytes_written))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, WRITE_F_APP, &client_fd, NULL, data_written, &bytes_written, &subst_files))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -478,9 +548,41 @@ static int worker_file_write_app(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
 
 
+    // ##### RETURNING SUBSTITUTED FILES #####
+
+    if(subst_files) {   // if the subst files array has been allocated, 
+        // getting the number of files removed from the cache
+        for(i=0; i<(server_cache->max_file_number); i++) {
+            if(subst_files[i]==NULL) break;
+        }
+        subst_files_num=i;
+    }
+    *int_buf=subst_files_num;     // telling the client how many files to expect
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
+
+    // sending the substituted files back to the client
+    for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
+        file* temp=subst_files[i];
+        unsigned temp_path_len=strlen(temp->name);
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) goto cleanup_w_write_app;
+        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) goto cleanup_w_write_app;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) goto cleanup_w_write_app;
+        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) goto cleanup_w_write_app;
+        // deallocating file from memory
+        if(temp->data) free(temp->data);
+        if(temp->name) free(temp->name);
+        if(temp->open_list) {
+            temperr=ll_dealloc_full(temp->open_list);
+            if(temperr==ERR) return ERR;    // fatal error
+        }
+        free(temp);
+    }
+
+
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
     if(data_written) free(data_written);
+    if(subst_files) free(subst_files);
     return SUCCESS;
 
 // CLEANUP SECTION
@@ -488,6 +590,7 @@ cleanup_w_write_app:
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
     if(data_written) free(data_written);
+    if(subst_files) free(subst_files);
     return -2;
 }
 
@@ -520,7 +623,7 @@ static int worker_file_lock(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_lock;
 
     // performing the lock operation
-    if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, LOCK_F, &client_fd, NULL, NULL, NULL, NULL))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -572,7 +675,7 @@ static int worker_file_unlock(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
 
     // performing the unlock operation
-    if((temperr=sc_lookup(server_cache, pathname, UNLOCK_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, UNLOCK_F, &client_fd, NULL, NULL, NULL, NULL))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -624,7 +727,7 @@ static int worker_file_remove(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_rm;
 
     // performing the remove operation
-    if((temperr=sc_lookup(server_cache, pathname, RM_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, RM_F, &client_fd, NULL, NULL, NULL, NULL))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -676,7 +779,7 @@ static int worker_file_close(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
 
     // performing the close operation
-    if((temperr=sc_lookup(server_cache, pathname, CLOSE_F, &client_fd, NULL, NULL, NULL))!=SUCCESS) {
+    if((temperr=sc_lookup(server_cache, pathname, CLOSE_F, &client_fd, NULL, NULL, NULL, NULL))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));

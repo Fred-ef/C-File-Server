@@ -40,7 +40,7 @@ typedef struct file {
 sc_cache* sc_cache_create(int, int);                // returns an empty sc-cache data structure of capacity and size(bytes) given
 int sc_cache_insert(sc_cache*, file*, file***);      // pushes a file in the cache, as a "recently used" file, getting the expelled files
 int sc_algorithm(sc_cache*, unsigned, file***, bool);         // second chance replacement algorithm
-int sc_lookup(sc_cache*, char*, op_code, const int*, byte**, byte*, unsigned*);      // executes the request specified in the operation code
+int sc_lookup(sc_cache*, char*, op_code, const int*, byte**, byte*, unsigned*, file***);      // executes the request specified in the operation code
 file* file_create(char* pathname);      // returns an empty file with pathname as its name
 
 #endif // sc_cache_h

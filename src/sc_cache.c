@@ -13,15 +13,12 @@ static int write_append(file* file, byte* data_written, const unsigned* bytes_us
 static int is_duplicate(file* file1, file* file2);
 static int int_ptr_cmp(const void* x, const void* y);
 
-// TODO -   aggiornare spazio cache nelle write
-// TODO -   de-allocare lo spazio quando la modifica fallisce
 // TODO -   controllare che si liberi la cache
 // TODO -   controllare che si liberino le code di file aperti
 // TODO -   controllare che si liberi la copia dei file letti
 // TODO -   aggiungere cleanup per pulire l'intera cache dai file
-// TODO -   restituire file quando si rimpiazza
-// TODO -   aggiungere rimpiazzo file per modifica troppo grande
-char** strings=NULL;
+// TODO -   ridurre numero files/bytes occupati dopo remove
+// TODO -   controllare che esistano capacity misses (su write)
 
 
 sc_cache* sc_cache_create(int max_file_number, int max_byte_size) {
@@ -71,17 +68,22 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
     if(temperr) {LOG_ERR(temperr, "insert: locking cache's mem-mutex"); return ERR;}
 
     // if the file is too large for the cache, return error
-    if(new_file->file_size > cache->max_byte_size) {LOG_ERR(EFBIG, "file is too large"); return ERR;}
+    if(new_file->file_size > cache->max_byte_size) {LOG_ERR(EFBIG, "file is too large"); res=EFBIG;}
     // if there isn't enough space, call the replacement algorithm
-    if(((cache->curr_file_number + 1) > cache->max_file_number)
+    else if(((cache->curr_file_number + 1) > cache->max_file_number)
     || ((cache->curr_byte_size + new_file->file_size) > cache->max_byte_size)) {
+        LOG_DEBUG("Num attuale files: %d\nNum previsto files: %d\n", cache->curr_file_number, cache->curr_file_number+1);   // TODO REMOVE
+
+        LOG_DEBUG("\nOUT\nOF\nMEMORY\n");
         
         temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
         if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
 
         // invoking the replacement algorithm
-        if((temperr=sc_algorithm(cache, new_file->file_size, replaced_files, TRUE))==ERR)
-            return ERR;     // the caller will handle the error and eventually try again (errno is set)
+        if((temperr=sc_algorithm(cache, new_file->file_size, replaced_files, TRUE))!=SUCCESS) {
+                if(errno!=ENOSPC) return ERR;   // fatal error
+                res=ENOSPC;
+            }
     }
     else {  // else, pre-allocate the element
         cache->curr_file_number++;      // incrementinc chache's file number
@@ -90,10 +92,9 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
         temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
         if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
     }
-
     
     
-    // getting the starting index for our file
+    // getting the starting index for the file
     unsigned int idx=conc_hash_hashfun((new_file->name), (ht->size));
     while(res==PROBING) {       // finding a free entry for the file
         // locking the hashtable entry
@@ -105,16 +106,15 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
 
             ((ht->table)[idx]).entry=(void*)new_file;   // saving the file in the current entry
             ((ht->table)[idx]).r_used=1;    // setting the used-bit
+            res=FOUND;      // exiting the while-loop
 
             LOG_DEBUG("PUSHED CORRECTLY\n\n#FILE: %d\t#BYTES: %d\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
-
-            res=FOUND;      // exiting the while-loop
         }
 
         // if the element is not free and it is a duplicate, return an error
         // TODO gestire meglio, che casino (togliere unlock e metterne una alla fine)
         else if((temperr=is_duplicate(((ht->table)[idx]).entry, new_file))) {  // TODO implementare
-            LOG_DEBUG("THREAD: %d\tKEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
+            LOG_DEBUG("THREAD: %d\t: KEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
             res=EEXIST;
         }
 
@@ -135,12 +135,14 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
 // CLEANUP SECTION
 cleanup_insert:
 // de-allocating the pre-allocated memory
-    temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
-    if(temperr) {LOG_ERR(temperr, "insert: locking cache's mem-mutex"); return ERR;}
-    cache->curr_file_number--;
-    cache->curr_byte_size-=new_file->file_size;
-    temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
-    if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
+    if(res!=EFBIG && res!=ENOSPC) {
+        temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
+        if(temperr) {LOG_ERR(temperr, "insert: locking cache's mem-mutex"); return ERR;}
+        cache->curr_file_number--;
+        cache->curr_byte_size-=new_file->file_size;
+        temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
+        if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
+    }
     errno=res;
     return ERR;
 }
@@ -148,6 +150,7 @@ cleanup_insert:
 
 int sc_algorithm(sc_cache* cache, unsigned size_var, file*** replaced_files, bool is_insert) {
     if(!cache) {LOG_ERR(EINVAL, "replace: cache not initialized"); return ERR;}
+    if(!replaced_files) {LOG_ERR(EINVAL, "expelled files' array not initialized"); return EINVAL;}
 
     int i, j;          // loop indexes
     int k=0;          // holds the number of replaced files
@@ -168,10 +171,11 @@ int sc_algorithm(sc_cache* cache, unsigned size_var, file*** replaced_files, boo
             if(temperr) {LOG_ERR(temperr, "replace: locking hashtable's entry"); return ERR;}
 
             if((ht->table)[j].entry && (ht->table)[j].entry!=ht->mark) {
-                if((ht->table)[j].r_used) (ht->table)[j].r_used=0;  // if the item was recently used, reset its used-bit
+                if((ht->table)[j].r_used) (ht->table)[j].r_used--;  // if the item was recently used, reset its used-bit
                 else {
                     // if the file isn't currently locked, proceed to its elimination
                     if(!((file*)ht->table[j].entry)->f_lock) {
+                        LOG_DEBUG("\n#####\nRemoving file\n#####\n\n"); // TODO REMOVE
                         // locking cache's mem-mtx
                         temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
                         if(temperr) {LOG_ERR(temperr, "replace: locking cache's mem-mutex"); return ERR;}
@@ -194,6 +198,7 @@ int sc_algorithm(sc_cache* cache, unsigned size_var, file*** replaced_files, boo
                         temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
                         if(temperr) {LOG_ERR(temperr, "replace: unlocking cache's mem-mutex"); return ERR;}
                     }
+                    else LOG_DEBUG("#####\nFile was locked\n#####\n");  // TODO REMOVE
                 }
             }
             // unlocking current entry
@@ -205,16 +210,11 @@ int sc_algorithm(sc_cache* cache, unsigned size_var, file*** replaced_files, boo
 
     // if the whole cache has been scanned twice unsuccessfully, return an error
     if(!exit) {errno=ENOSPC; return ERR;}   // if the algorithm couldn't free enough space, return an error
-    
     return SUCCESS;
-
-// CLEANUP SECTION
-cleanup_alg:
-    return ERR;
 }
 
 
-int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, byte** data_read, byte* data_written, unsigned* bytes_used) {
+int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, byte** data_read, byte* data_written, unsigned* bytes_used, file*** replaced_files) {
     // ########## CONTROL SECTION ##########
     if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized"); return ERR;}
     if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified"); return ERR;}
@@ -225,11 +225,44 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
     if((op==WRITE_F || op==WRITE_F_APP) && !data_written) {LOG_ERR(EINVAL, "lookup: invalid pointer provided"); return ERR;} 
     if((op==WRITE_F || op==WRITE_F_APP) && !bytes_used) {LOG_ERR(EINVAL, "lookup: invalid write size"); return ERR;}
 
+
     // ########## USEFUL DECLARATIONS ##########
     int temperr;    // used for error codes
     short res=PROBING;    // termination condition (in case you don't like break;)
     conc_hash_table* ht=cache->ht;      // shortcut to the hashtable
     file* temp_file=NULL;       // auxiliary pointer
+
+
+    // ########## RESERVING MEMORY FOR WRITE OPERATIONS ##########
+    if(op==WRITE_F || op==WRITE_F_APP) {
+        // pre-allocating the memory needed to perform the write operation, returning eventually removed files
+
+        // checking if there's enough space in the cache to memorize the file
+        temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
+        if(temperr) {LOG_ERR(temperr, "lookup-write: locking cache's mem-mutex"); return ERR;}
+
+        // if the file is too large for the cache, return error
+        if((*bytes_used) > cache->max_byte_size) {LOG_ERR(EFBIG, "file is too large"); res=EFBIG;}
+        
+        // if there isn't enough space, call the replacement algorithm
+        else if((cache->curr_byte_size + (*bytes_used)) > cache->max_byte_size) {
+            
+            temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
+            if(temperr) {LOG_ERR(temperr, "lookup-write: unlocking cache's mem-mutex"); return ERR;}
+
+            // invoking the replacement algorithm
+            if((temperr=sc_algorithm(cache, (*bytes_used), replaced_files, FALSE))!=SUCCESS) {
+                if(errno!=ENOSPC) return ERR;   // fatal error
+                res=ENOSPC;
+            }
+        }
+        else {  // else (free space is enough), pre-allocate the element
+            cache->curr_byte_size+=(*bytes_used);       // incrementing cache's size
+
+            temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
+            if(temperr) {LOG_ERR(temperr, "lookup-write: unlocking cache's mem-mutex"); return ERR;}
+        }
+    }
 
 
     // ########## MAIN OPERATION ##########
@@ -285,7 +318,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
             else if(op==RM_F) {     // if the file is locked by the user, deletes it from the cache
                 res=remove_file(temp_file, usr_id);        // if file is locked by the user, deletes it
                 if(res==ERR) {LOG_ERR(errno, "lookup: removing file"); return ERR;} // a fatal error (memerr/mutexerr) has occurred
-                ht->table[idx].entry=ht->mark;  // the item has been deleted, so mark it as deleted
+                if(res==SUCCESS) ht->table[idx].entry=ht->mark;  // the item has been deleted, so mark it as deleted
             }
 
             else if(op==CLOSE_F) {  // closes the file for the user
@@ -303,7 +336,20 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
     }
 
 
+    if(res!=SUCCESS) goto cleanup_lookup;
     return res;     // returns the result of the operation performed
+
+// CLEANUP SECTION
+cleanup_lookup:
+    if(op==WRITE_F || op== WRITE_F_APP) {
+        // de-allocating the pre-allocated memory
+        temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
+        if(temperr) {LOG_ERR(temperr, "lookup-write: locking cache's mem-mutex"); return ERR;}
+        cache->curr_byte_size-=(*bytes_used);
+        temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
+        if(temperr) {LOG_ERR(temperr, "lookup-write: unlocking cache's mem-mutex"); return ERR;}
+    }
+    return res;
 }
 
 
@@ -431,6 +477,7 @@ static int write_file(file* file, byte* data_written, const unsigned* bytes_used
     if(file->data || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
+    LOG_DEBUG("Doing the writing :D\n");
 
     file->data=(byte*)malloc((*bytes_used)*sizeof(byte));
     if(!file->data) {LOG_ERR(errno, "writing file: memerr"); return ERR;}
@@ -485,137 +532,3 @@ static int int_ptr_cmp(const void* x, const void* y) {
     else if((*(int*)x)>(*(int*)y)) return 1;    // x>y
     else return -1;      // x<y
 }
-
-
-
-
-
-
-
-/*
-void rand_str(char *dest, size_t length) {
-    char charset[] = "0123456789"
-                     "abcdefghijklmnopqrstuvwxyz"
-                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-    while (length-- > 0) {
-        size_t index = (double) rand() / RAND_MAX * (sizeof charset - 1);
-        *dest++ = charset[index];
-    }
-    *dest = '\0';
-}
-
-void* pushfun(void* arg) {
-    sc_cache* cache=(sc_cache*)arg;
-    int i;
-    printf("Thread %d starting\n", (gettid()));
-    for(i=0; i<50; i++) {
-        byte* num=(byte*)malloc(sizeof(byte));
-        *num=i;
-        file** replaced_files;
-        file* file=lru_cache_build_file(strings[i], i+1, num, 0, 0, 0);
-        sc_cache_insert(cache, file, &replaced_files);
-        printf("Thread %d pushed\n", (gettid()));
-    }
-
-    return (void*) NULL;
-}
-
-void* popfun(void* arg) {
-    sc_cache* cache=(sc_cache*)arg;
-    int i;
-    file* file;
-    printf("Thread popper %d starting\n", (gettid()));
-    for(i=0; i<50; i++) {
-        file=sc_lookup(cache, file, RM_F, &i, NULL, NULL, 0);
-        if(file)printf("Thread %d popped file '%s'\n", (gettid()), file->name);
-    }
-
-    return (void*)NULL;
-}
-
-void* lookupfun(void* arg) {
-    sc_cache* cache=(sc_cache*)arg;
-    int i;
-    file* file;
-    printf("Thread looker %d starting\n", (gettid()));
-    for(i=0; i<50; i++) {
-        file=lru_cache_lookup(cache, strings[i]);
-        if(file) printf("#################### I got file: '%s'\n", (file->name));
-    }
-
-    return (void*)NULL;
-}
-
-void* removefun(void* arg) {
-    sc_cache* cache=(sc_cache*)arg;
-    int i;
-    file* file;
-    printf("Thread remover %d starting\n", (gettid()));
-    for(i=0; i<50; i++) {
-        file=lru_cache_remove(cache, strings[i]);
-        if(file) printf("#################### I got file: '%s'\n", (file->name));
-    }
-
-    return (void*)NULL;
-}
-
-int main() {
-    sc_cache* cache=lru_cache_create(500, 10000);
-    if(!cache) return -1;
-    pthread_t* tid_arr=(pthread_t*)malloc(20*sizeof(pthread_t));
-    if(!tid_arr) return -1;
-    int i;
-
-    strings=(char**)malloc(50*sizeof(char*));
-    for(i=0; i<50; i++) {
-        char str[] = { [41] = '\1' }; // make the last character non-zero so we can test based on it later
-        rand_str(str, sizeof str - 1);
-        strings[i]=(char*)malloc(255*sizeof(char));
-        strcpy(strings[i], str);
-    }
-
-
-    for(i=0; i<20; i++) {
-        if((i%2)==0) {
-            pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
-            printf("Spawned thread PUSHER %d\n", i);
-        }
-        else {
-            pthread_create(&(tid_arr[i]), NULL, lookupfun, (void*)cache);
-            printf("Spawned thread POPPER %d\n", i);
-        }
-    }
-
-    for(i=0; i<20; i++) {
-        pthread_join(tid_arr[i], NULL);
-        printf("Joined thread %d\n", i);
-    }
-    
-
-    for(i=0; i<10; i++) {
-        pthread_create(&(tid_arr[i]), NULL, pushfun, (void*)cache);
-        printf("Spawned thread PUSHER %d\n", i);
-    }
-
-    for(i=0; i<10; i++) {
-        pthread_join(tid_arr[i], NULL);
-        printf("Joined thread PUSHER %d\n", i);
-    }
-
-    for(i=0; i<10; i++) {
-        pthread_create(&(tid_arr[i]), NULL, removefun, (void*)cache);
-        printf("Spawned thread REMOVER %d\n", i);
-    }
-
-    for(i=0; i<10; i++) {
-        pthread_join(tid_arr[i], NULL);
-        printf("Joined thread REMOVER %d\n", i);
-    }
-
-
-    printf("#files: %d\t#bytes: %d\n", cache->curr_file_number, cache->curr_byte_size);
-
-    return 0;
-}
-*/

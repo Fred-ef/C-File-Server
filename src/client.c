@@ -11,8 +11,6 @@ byte t_flag=0;      // used in order to temporally distantiate consecutive reque
 byte sleep_time=0;      // used to set a sleep between consecutive requests
 byte conn_timeout=10;    // used to set a time-out to connection attempts
 unsigned short conn_delay=500;      // used to set a time margin between consecutive connection attempts
-char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
-char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
 
 
 static int parse_command(char**);       // parses the command line, executing requests one by one
@@ -20,7 +18,7 @@ static void print_help();       // prints a comprehensive command list
 static int is_command(char*);       // tells whether a given token is a command
 static int set_sock(char*);     // sets the file-server's socket address and initiates connection
 static int send_dir(char*);     // sends the specified number of files from the specified folder
-static int visit_folder(DIR*, int);     // visits the dir tree rooted in the first argument
+static int visit_folder(char*, int*);     // visits the dir tree rooted in the first argument
 static int send_files(char*);       // sends multiple files, given as argument, to the file-server
 static int set_save_dir(char*);     // specifies the directory to save files retrieved from the file-server in
 static int set_miss_dir(char*);     // specifies the directory to save files discarded by the file-server in
@@ -303,7 +301,7 @@ static int send_dir(char* arg) {
     int temperr;
     char* token;
     char* saveptr;
-    char* dir_path=(char*)malloc(FILE_PATH_MAX*sizeof(char));
+    char* dir_path=(char*)malloc(UNIX_PATH_MAX*sizeof(char));
     if(!dir_path) { LOG_ERR(errno, "getting dir path"); return ERR; }
 
 
@@ -321,21 +319,12 @@ static int send_dir(char* arg) {
 
     LOG_DEBUG("Dir chosen: %s;\tNumber of files: %d\n", dir_path, n);
 
-    DIR* dir_obj;
-    if(!(dir_obj=opendir(dir_path))) {
-        LOG_ERR(errno, "-w - couldn't open directory");
+    if((temperr=visit_folder(dir_path, &n))==ERR) {
         if(dir_path) free(dir_path);
-        return ERR;
-    }
-
-    if((temperr=visit_folder(dir_obj, n))==ERR) {
-        if(dir_path) free(dir_path);
-        if(dir_obj) free(dir_obj);
         return ERR;
     }
 
     if(dir_path) free(dir_path);
-    if(dir_obj) free(dir_obj);
     return SUCCESS;
 }
 
@@ -415,11 +404,11 @@ static int read_files(char* arg) {
     // if file storing is enabled, copy the save_dir's path in the "pathname" var
     if(save_dir) {
         // copying the save directory into a string for later elaboration
-        pathname=(char*)malloc(FILE_PATH_MAX*sizeof(char));
+        pathname=(char*)malloc(UNIX_PATH_MAX*sizeof(char));
         if(!pathname) { perror("-r - memerror"); return ERR; }
         strcpy(pathname, save_dir);
          // saving save_dir's last char position
-         for(i=0; i<FILE_PATH_MAX; i++) if(pathname[i]=='\0') break;
+         for(i=0; i<UNIX_PATH_MAX; i++) if(pathname[i]=='\0') break;
     }
 
     // getting the first token
@@ -586,81 +575,88 @@ static int remove_files(char* arg) {
 }
 
 
-// recursively visits the dir_obj folder, sending the first rem_files to the file-server (all if rem_files=0)
-static int visit_folder(DIR* dir_obj, int rem_files) {
-    int i;      // for loop index
+// recursively visits the starting_dir folder, sending the first rem_files to the file-server (all if rem_files=0)
+static int visit_folder(char* starting_dir, int* rem_files) {
+    if(!starting_dir || !rem_files) {LOG_ERR(EINVAL, "-w - null arguments"); return ERR;}
+
     int temperr;        // used for error codes
-    struct dirent* curr_file;       // holds the current file while visiting the dir tree
-    DIR* next_dir;      // next dir to visit
+    char* curr_elem_name=NULL;   // current visited element name
+    struct dirent* curr_elem_p=NULL;       // holds the current element structure while visiting the dir tree
+    DIR* curr_dir_p=NULL;      // current working directory structure
+
 
     // allocating the string that will be used to save files' paths
-    char* file_name=(char*)malloc(FILE_PATH_MAX*sizeof(char));
-    if(!file_name) {LOG_ERR(errno, "-w - memerr"); return ERR;}
-    // getting current dir path
-    if((getcwd(file_name, FILE_PATH_MAX))==NULL) {
-        LOG_ERR(errno, "-w - getting dir path");
-        if(file_name) free(file_name);
-        return ERR;
-    }
-    // completing current dir path with '/' symbol
-    strncat(file_name, "/", (FILE_PATH_MAX-strlen(file_name)));
+    curr_elem_name=(char*)malloc(UNIX_PATH_MAX*sizeof(char));
+    if(!curr_elem_name) {LOG_ERR(errno, "-w - memerr"); return ERR;}
+    memset((void*)curr_elem_name, '\0', UNIX_PATH_MAX*sizeof(char));
+
+    // copying the current dir path as the starting of the files' paths and completing with '/'
+    strcpy(curr_elem_name, starting_dir);
+    strncat(curr_elem_name, "/", (UNIX_PATH_MAX-strlen(curr_elem_name)));
+
     // getting the position of the null-terminating character in current dir path
     // this will be used later to re-set the position to scan other files
-    for(i=0; i<(FILE_PATH_MAX-1); i++) {
-        if((file_name[i])=='\0') break;
+    int string_ter=strlen(curr_elem_name);
+
+    if(!(curr_dir_p=opendir(starting_dir))) {
+        LOG_ERR(errno, "-w - couldn't open directory");
+        goto cleanup_vis_fold;
     }
 
-    // scan until the dir tree has been completely visited or enough files have been sent
-    while(!(errno=0) && (curr_file=readdir(dir_obj)) && (rem_files>0)) {
+    // scan until the current dir has been completely visited or enough files have been sent
+    while(!(errno=0) && (curr_elem_p=readdir(curr_dir_p)) && (*rem_files>0)) {
 
-        // avoiding to loop on the same folder or to go backwards
-        if(!(strcmp(curr_file->d_name, ".")) || !(strcmp(curr_file->d_name, ".."))) continue;
+        // avoiding to loop on the same folder or going backwards
+        if(!(strcmp(curr_elem_p->d_name, ".")) || !(strcmp(curr_elem_p->d_name, ".."))) continue;
 
         // getting the absolute path for the current file scan
-        strncat(file_name, curr_file->d_name, (FILE_PATH_MAX-strlen(file_name)-strlen(curr_file->d_name)));
-        LOG_DEBUG("SCANNING FILE %s\n", file_name);
+        strncat(curr_elem_name, curr_elem_p->d_name, (UNIX_PATH_MAX-strlen(curr_elem_name)-strlen(curr_elem_p->d_name)));
+        LOG_DEBUG("SCANNING ELEMENT %s\n", curr_elem_name);
 
         //checking file's type (dir or regular)
 
         // if it's a dir, visit it recursively
-        if(curr_file->d_type==DT_DIR) {
-            if(!(next_dir=opendir(file_name))) {
-                LOG_ERR(errno, "-w - couldn't open directory");
-                if(file_name) free(file_name);
-                return ERR;
+        if(curr_elem_p->d_type==DT_DIR) {
+            if((temperr=visit_folder(curr_elem_name, rem_files))==ERR) {
+                LOG_ERR(errno, "-w - starting new dir visit");
+                goto cleanup_vis_fold;
             }
-            if((temperr=visit_folder(next_dir, rem_files))==ERR) {
-                LOG_ERR(errno, "-w - switching dir");
-                if(file_name) free(file_name);
-                if(next_dir) free(next_dir);
-                return ERR;
-            }
-            if(next_dir) {free(next_dir); next_dir=NULL;}
         }
         // if it's a file, send it to the file-server as a new-file
-        else if(curr_file->d_type==DT_REG) {
-            if((temperr=openFile(file_name, O_CREATE|O_LOCK))==ERR) {
+        else if(curr_elem_p->d_type==DT_REG) {
+            if((temperr=openFile(curr_elem_name, O_CREATE|O_LOCK))==ERR) {
                 LOG_ERR(errno, "-w - could not send all files");
-                if(errno!=EEXIST) {
-                    if(file_name) free(file_name);
-                    return ERR;
+                if(errno!=EEXIST && errno!=EINTR) {
+                    goto cleanup_vis_fold;
                 }
             }
-            LOG_DEBUG("FILE %s SENT\n", file_name);
-            if((temperr=writeFile(file_name, save_dir))==ERR) {
+            LOG_DEBUG("FILE %s CREATED\n", curr_elem_name);
+            if((temperr=writeFile(curr_elem_name, save_dir))==ERR) {
                 LOG_ERR(errno, "-w - could not write all files");
-                if(file_name) free(file_name);
-                return ERR;
+                goto cleanup_vis_fold;
             }
-            rem_files--;    // decrement remaining files counter by 1
+            (*rem_files)--;    // decrement remaining files counter by 1
         }
-        file_name[i]='\0';      // re-setting null-terminator position to current dir path
-    }
-    if(errno) {     // an error has occurred during the visit
-        LOG_ERR(errno, "-w - error while visiting the dir tree");
-        if(file_name) {free(file_name); file_name=NULL;}
+        curr_elem_name[string_ter]='\0';      // re-setting null-terminator position to current dir path
     }
 
-    if(file_name) {free(file_name); file_name=NULL;}
+    if(errno) {     // an error has occurred during the visit
+        LOG_ERR(errno, "-w - error while visiting the dir tree");
+        goto cleanup_vis_fold;
+    }
+
+    // when the visit ends, the dir must be closed
+    if((temperr=closedir(curr_dir_p))==ERR) {
+        LOG_ERR(errno, "-w - couldn't open directory");
+        goto cleanup_vis_fold;
+    }
+
+
+    if(curr_elem_name) {free(curr_elem_name); curr_elem_name=NULL;}
     return SUCCESS;
+
+// CLEANUP SECTION
+cleanup_vis_fold:
+    if(curr_elem_name) {free(curr_elem_name); curr_elem_name=NULL;}
+    return ERR;
 }

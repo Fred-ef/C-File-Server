@@ -4,6 +4,9 @@ short fd_sock=-1;      // initializing the socket fd to -1 (will return error if
 char* serv_sk=NULL;      // initializing the server-address note to NULL (will return error if used)
 bool is_connected=0;     // set to 1 when the connection with the server is established, 0 otherwise
 
+char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
+char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
+
 // Opens the connection to the server
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
     if(!sockname) {errno=EINVAL; return ERR;}
@@ -88,6 +91,15 @@ int openFile(const char* pathname, int flags) {
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
     if(!int_buf) return ERR;
 
+    int i;
+    int res=SUCCESS;    // will hold the result of the operation
+    unsigned subst_files_num=0;     // will hold the number of files expelled from the cache
+    unsigned subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
+    char* subst_files_name=NULL;    // will hold the name of each of the files expelled (one at a time)
+    unsigned subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
+    byte* subst_files_data=NULL;    // will hold the data of each of the files expelled (one at a time)
+    char* final_path=NULL;  // will hold the path to save each of the the expelled file (one at a time)
+
     // communicates operation
     *int_buf=op;
     writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
@@ -112,8 +124,59 @@ int openFile(const char* pathname, int flags) {
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_open;}       // if the flags are invalid, abort the operation
 
     readn(fd_sock, (void*)int_buf, sizeof(int));    // reads the operation result value
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_open;}       // if the operation failed, return error
+    if((*int_buf)!=SUCCESS) res=*int_buf;   // if the operation failed, store the err
 
+
+    // ##### RETRIEVING SUBSTITUTED FILES #####
+
+    // receives the number of expelled files
+    readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
+    if(subst_files_num<0) {errno=EINTR; goto cleanup_open;}
+
+    // receiving the expelled files
+    for(i=0; i<subst_files_num; i++) {
+        subst_files_name_len=0;
+        readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
+        if(subst_files_name_len<0) {errno=EINTR; goto cleanup_open;}
+        subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
+        if(!subst_files_name) return ERR;   // fatal error
+        memset(subst_files_name, '\0', subst_files_name_len+1);
+        readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
+        readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
+        if(subst_files_size<0) {errno=EINTR; goto cleanup_open;}
+        subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
+        if(!subst_files_data) return ERR;   // fatal error
+        readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
+        LOG_DEBUG("Contenuto file recuperato: %s\n", (char*)subst_files_data);  // TODO REMOVE
+
+        // if the miss dir is set, save the file in it
+        if(miss_dir) {
+            int temp_fd;
+            final_path=(char*)calloc(UNIX_PATH_MAX, sizeof(char));
+            if(!final_path) return ERR;  // fatal error
+            memset(final_path, '\0', UNIX_PATH_MAX);
+            strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
+            strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
+            if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
+                errno=EINTR;
+                goto cleanup_open;
+            }
+            if((write(temp_fd, (void*)subst_files_data, subst_files_size))==ERR) {
+                errno=EINTR;
+                if((close(temp_fd))==ERR) return ERR;
+                goto cleanup_open;
+            }
+            if((close(temp_fd))==ERR) return ERR;
+            free(final_path); final_path=NULL;
+        }
+        // cleaning pointers
+        free(subst_files_name); subst_files_name=NULL;
+        free(subst_files_data); subst_files_data=NULL;
+    }
+
+
+    // the open has failed, but the expelled files have been retrieved correctly
+    if(res!=SUCCESS) goto cleanup_open;
 
     if(int_buf) free(int_buf);
     return SUCCESS;       // the file has been opened on the server
@@ -121,6 +184,10 @@ int openFile(const char* pathname, int flags) {
 // CLEANUP SECTION
 cleanup_open:
     if(int_buf) free(int_buf);
+    if(subst_files_name) free(subst_files_name);
+    if(subst_files_data) free(subst_files_data);
+    if(final_path) free(final_path);
+    if(res) errno=res;
     return ERR;
 }
 
@@ -274,6 +341,15 @@ int writeFile(const char* pathname, const char* dirname) {
     byte* buf=NULL;     // will hold the file raw content
     struct stat* fileStat=NULL;     // will hold the file info
 
+    int i;
+    int res=SUCCESS;    // will hold the result of the operation
+    unsigned subst_files_num=0;     // will hold the number of files expelled from the cache
+    unsigned subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
+    char* subst_files_name=NULL;    // will hold the name of each of the files expelled (one at a time)
+    unsigned subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
+    byte* subst_files_data=NULL;    // will hold the data of each of the files expelled (one at a time)
+    char* final_path=NULL;  // will hold the path to save each of the the expelled file (one at a time)
+
     LOG_DEBUG("File name: %s\n", pathname);
     if((fd=open(pathname, O_RDONLY, NULL))==ERR) goto cleanup_write;    // opening the file
     LOG_DEBUG("WRITING FILE\n");
@@ -285,6 +361,7 @@ int writeFile(const char* pathname, const char* dirname) {
     buf=(byte*)malloc(fileSize*sizeof(byte));   // allocating file space
     if(!buf) return ERR;
     if((readn(fd, buf, fileSize))==ERR) goto cleanup_write;     // getting file's raw data into the buffer
+    if((close(fd))==ERR) return ERR;
 
 
     // communicates operation
@@ -304,7 +381,7 @@ int writeFile(const char* pathname, const char* dirname) {
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server could not get the path, abort the operation
 
-    // communicates file lenght
+    // communicates file size
     *int_buf=fileSize;
     writen(fd_sock, (void*)int_buf, sizeof(int));      // tells the server what read size to expect next
     readn(fd_sock, (void*)int_buf, sizeof(int));
@@ -313,10 +390,59 @@ int writeFile(const char* pathname, const char* dirname) {
     // sends the file data
     writen(fd_sock, (void*)buf, fileSize);  // sends the actual file
     readn(fd_sock, (void*)int_buf, sizeof(int));
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}   // if the server coudln't read the file, abort the operation
+    if((*int_buf)!=SUCCESS) res=*int_buf;   // if the server coudln't read the file, save the error
 
-    // TODO check if there is more
 
+    // ##### RETRIEVING SUBSTITUTED FILES #####
+
+    // receives the number of expelled files
+    readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
+    if(subst_files_num<0) {errno=EINTR; goto cleanup_write;}
+
+    // receiving the expelled files
+    for(i=0; i<subst_files_num; i++) {
+        LOG_DEBUG("Receiving expelled file\n"); // TODO remove
+        subst_files_name_len=0;
+        readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
+        if(subst_files_name_len<0) {errno=EINTR; goto cleanup_write;}
+        subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
+        if(!subst_files_name) return ERR;   // fatal error
+        memset(subst_files_name, '\0', subst_files_name_len+1);
+        readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
+        readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
+        if(subst_files_size<0) {errno=EINTR; goto cleanup_write;}
+        subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
+        if(!subst_files_data) return ERR;   // fatal error
+        readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
+
+        // if the miss dir is set, save the file in it
+        if(miss_dir) {
+            int temp_fd;
+            final_path=(char*)calloc(UNIX_PATH_MAX, sizeof(char));
+            if(!final_path) return ERR;  // fatal error
+            memset(final_path, '\0', UNIX_PATH_MAX);
+            strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
+            strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
+            if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
+                errno=EINTR;
+                goto cleanup_write;
+            }
+            if((write(temp_fd, (void*)subst_files_data, subst_files_size))==ERR) {
+                errno=EINTR;
+                if((close(temp_fd))==ERR) return ERR;
+                goto cleanup_write;
+            }
+            if((close(temp_fd))==ERR) return ERR;
+            free(final_path); final_path=NULL;
+        }
+        // cleaning pointers
+        free(subst_files_name); subst_files_name=NULL;
+        free(subst_files_data); subst_files_data=NULL;
+    }
+
+
+    // the write has failed, but the expelled files have been retrieved
+    if(res) goto cleanup_write;
 
     if(int_buf) free(int_buf);
     if(buf) free(buf);
@@ -328,6 +454,10 @@ cleanup_write:
     if(int_buf) free(int_buf);
     if(buf) free(buf);
     if(fileStat) free(fileStat);
+    if(subst_files_name) free(subst_files_name);
+    if(subst_files_data) free(subst_files_data);
+    if(final_path) free(final_path);
+    if(res) errno=res;
     return ERR;
 }
 
@@ -339,6 +469,15 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     op_code op=WRITE_F_APP;
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
     if(!int_buf) return ERR;
+
+    int i;
+    int res=SUCCESS;    // will hold the result of the operation
+    unsigned subst_files_num=0;     // will hold the number of files expelled from the cache
+    unsigned subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
+    char* subst_files_name=NULL;    // will hold the name of each of the files expelled (one at a time)
+    unsigned subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
+    byte* subst_files_data=NULL;    // will hold the data of each of the files expelled (one at a time)
+    char* final_path=NULL;  // will hold the path to save each of the the expelled file (one at a time)
 
 
     // communicates operation
@@ -367,8 +506,58 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     // sends the file data
     writen(fd_sock, (void*)buf, size);  // sends the actual file
     readn(fd_sock, (void*)int_buf, sizeof(int));
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}   // if the server coudln't read the file, abort the operation
+    if((*int_buf)!=SUCCESS) res=*int_buf;   // if the server coudln't read the file, store the err
 
+
+    // ##### RETRIEVING SUBSTITUTED FILES #####
+
+    // receives the number of expelled files
+    readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
+    if(subst_files_num<0) {errno=EINTR; goto cleanup_append;}
+
+    // receiving the expelled files
+    for(i=0; i<subst_files_num; i++) {
+        subst_files_name_len=0;
+        readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
+        if(subst_files_name_len<0) {errno=EINTR; goto cleanup_append;}
+        subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
+        if(!subst_files_name) return ERR;   // fatal error
+        memset(subst_files_name, '\0', subst_files_name_len+1);
+        readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
+        readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
+        if(subst_files_size<0) {errno=EINTR; goto cleanup_append;}
+        subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
+        if(!subst_files_data) return ERR;   // fatal error
+        readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
+
+        // if the miss dir is set, save the file in it
+        if(miss_dir) {
+            int temp_fd;
+            final_path=(char*)calloc(UNIX_PATH_MAX, sizeof(char));
+            if(!final_path) return ERR;  // fatal error
+            memset(final_path, '\0', UNIX_PATH_MAX);
+            strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
+            strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
+            if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
+                errno=EINTR;
+                goto cleanup_append;
+            }
+            if((write(temp_fd, (void*)subst_files_data, subst_files_size))==ERR) {
+                errno=EINTR;
+                if((close(temp_fd))==ERR) return ERR;
+                goto cleanup_append;
+            }
+            if((close(temp_fd))==ERR) return ERR;
+            free(final_path); final_path=NULL;
+        }
+        // cleaning pointers
+        free(subst_files_name); subst_files_name=NULL;
+        free(subst_files_data); subst_files_data=NULL;
+    }
+
+
+    // the append has failed, but the expelled files have been retrieved
+    if(res) goto cleanup_append;
 
     if(int_buf) free(int_buf);
     return SUCCESS;
@@ -376,6 +565,10 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 // CLEANUP SECTION
 cleanup_append:
     if(int_buf) free(int_buf);
+    if(subst_files_name) free(subst_files_name);
+    if(subst_files_data) free(subst_files_data);
+    if(final_path) free(final_path);
+    if(res) errno=res;
     return ERR;
 }
 
@@ -450,6 +643,7 @@ int unlockFile(const char* pathname) {
 
     readn(fd_sock, (void*)int_buf, sizeof(int));    // reads the operation result value
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_unlock;}       // if the operation failed, return error
+    LOG_DEBUG("Unlock operation result: %d\n", *int_buf);
 
 
     if(int_buf) free(int_buf);
@@ -505,7 +699,7 @@ int removeFile(const char* pathname) {
     if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
 
-    op_code op=RM_F;        // sets the operation code to closeFile
+    op_code op=RM_F;        // sets the operation code to removeFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
     if(!int_buf) return ERR;
 
@@ -513,28 +707,28 @@ int removeFile(const char* pathname) {
     *int_buf=op;
     writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
     readn(fd_sock, (void*)int_buf, sizeof(int));
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the operation prep failed for some reason, abort the operation
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_rm;}       // if the operation prep failed for some reason, abort the operation
 
     // communicates pathname lenght
     *int_buf=strlen(pathname);
     writen(fd_sock, (void*)int_buf, sizeof(int));      // tells the server what read size to expect next
     readn(fd_sock, (void*)int_buf, sizeof(int));
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the server couldn't process the size, abort the operation
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_rm;}       // if the server couldn't process the size, abort the operation
 
     // communicates pathname
     writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to remove
     readn(fd_sock, (void*)int_buf, sizeof(int));
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the server could not get the path, abort the operation
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_rm;}       // if the server could not get the path, abort the operation
 
     readn(fd_sock, (void*)int_buf, sizeof(int));    // reads the operation result value
-    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_close;}       // if the operation failed, return error
+    if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_rm;}       // if the operation failed, return error
 
 
     if(int_buf) free(int_buf);
     return SUCCESS;
 
 // CLEANUP SECTION
-cleanup_close:
+cleanup_rm:
     if(int_buf) free(int_buf);
     return ERR;
 }

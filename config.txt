@@ -3,5 +3,5 @@
 .
 thread_pool_cap=4
 sock_addr=./tmp/fileserver.sk
-server_byte_size=128
+server_byte_size=100
 server_file_size=10000
