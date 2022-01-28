@@ -19,8 +19,8 @@
 #define PIPE_MSG_LEN sizeof(int)
 
 sc_cache* server_cache;      // the actual cache structure used by the server
-unsigned server_byte_size;      // indicates the capacity of the server in terms of bytes of memory
-unsigned server_file_size;      // indicates the capacity of the server in terms of files in memory
+size_t server_byte_size;      // indicates the capacity of the server in terms of bytes of memory
+size_t server_file_size;      // indicates the capacity of the server in terms of files in memory
 
 unsigned thread_pool_cap;      // indicates the maximum number of worker-threads the server can manage at the same time
 char* sock_addr;       // will hold the server's main socket address

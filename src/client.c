@@ -10,7 +10,7 @@ byte d_flag=0;      // used in order  to couple -d with -r or -R
 byte t_flag=0;      // used in order to temporally distantiate consecutive requests
 byte sleep_time=0;      // used to set a sleep between consecutive requests
 byte conn_timeout=10;    // used to set a time-out to connection attempts
-unsigned short conn_delay=500;      // used to set a time margin between consecutive connection attempts
+unsigned conn_delay=500;      // used to set a time margin between consecutive connection attempts
 
 
 static int parse_command(char**);       // parses the command line, executing requests one by one
@@ -61,8 +61,7 @@ static int parse_command(char** commands) {
 
     // checking if the first flag is -f or -h; if not, the flag sequence is invalid (connection must be established first)
     if((strcmp(commands[i], "-f")) && (strcmp(commands[i], "-h"))) {
-        errno=EINVAL;
-        perror("invalid flag sequence: connection (-f) must be specified first");
+        LOG_ERR(EINVAL, "invalid flag sequence: connection (-f) must be specified first");
         return ERR;
     }
 
@@ -75,8 +74,7 @@ static int parse_command(char** commands) {
         }
         else if(!strcmp(commands[i], "-f")) {
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-f: argument missing");
+                LOG_ERR(EINVAL, "-f - argument missig");
                 return ERR;
             }
             sockname=commands[i++];   // saving the socket name for future close()
@@ -89,11 +87,10 @@ static int parse_command(char** commands) {
             d_flag=1;   // signaling that option '-d' has been specified
             for(j=1; commands[j]; j++)      // searching for option '-r' or '-R' to match '-d'
                 if(strcmp(commands[j], "-r") || strcmp(commands[j], "-R")) d_flag=0;
-            if(d_flag) { errno=EINVAL; perror("-d must be coupled with one of -r or -R"); goto cleanup; }
+            if(d_flag) { LOG_ERR(EINVAL, "-d must be coupled with one of -r or -R"); goto cleanup; }
 
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-d: argument missing");
+                LOG_ERR(EINVAL, "-d - argument missing");
                 goto cleanup;
             }
             if((temperr=set_save_dir(commands[i++]))==ERR) {
@@ -104,11 +101,10 @@ static int parse_command(char** commands) {
             D_flag=1;   // signaling that option '-D' has been specified
             for(j=1; commands[j]; j++)     // searching for option '-w' or '-W' to match '-D'
                 if(strcmp(commands[j], "-w") || strcmp(commands[j], "-W")) D_flag=0;
-            if(D_flag) { errno=EINVAL; perror("-D must be coupled with one of -w or -W"); goto cleanup; }
+            if(D_flag) { LOG_ERR(EINVAL, "-D must be coupled with one of -w or -W"); goto cleanup; }
 
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-D: argument missing");
+                LOG_ERR(EINVAL, "-D - argument missing");
                 goto cleanup;
             }
             if((temperr=set_miss_dir(commands[i++]))==ERR) {
@@ -131,8 +127,8 @@ static int parse_command(char** commands) {
         }
         else i++;
     }
-    if(!f_flag) { errno=EINVAL; perror("option -f is required"); goto cleanup; }
-    if(f_flag>1 || p_flag>1) { errno=EINVAL; perror("options -f, -p, -h can only be specified once"); goto cleanup; }
+    if(!f_flag) { LOG_ERR(EINVAL, "option -f is required"); goto cleanup; }
+    if(f_flag>1 || p_flag>1) { LOG_ERR(EINVAL, "options -f, -p, -h can only be specified once"); goto cleanup; }
     i=1;    // resetting commands index for file-operations
 
 
@@ -146,8 +142,7 @@ static int parse_command(char** commands) {
         }
         else if(!strcmp(commands[i], "-w")) {
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-w: argument missing");
+                LOG_ERR(EINVAL, "-w: argument missing");
                 goto cleanup;
             }
             if((temperr=send_dir(commands[i++]))==ERR) {
@@ -156,8 +151,7 @@ static int parse_command(char** commands) {
         }
         else if(!strcmp(commands[i], "-W")) {
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-W: argument missing");
+                LOG_ERR(EINVAL, "-W: argument missing");
                 goto cleanup;
             }
             if((temperr=send_files(commands[i++]))==ERR) {
@@ -172,8 +166,7 @@ static int parse_command(char** commands) {
         }
         else if(!strcmp(commands[i], "-r")) {
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-r: argument missing");
+                LOG_ERR(EINVAL, "-r: argument missing");
                 goto cleanup;
             }
             if((temperr=read_files(commands[i++]))==ERR) {
@@ -196,8 +189,7 @@ static int parse_command(char** commands) {
         }
         else if(!strcmp(commands[i], "-l")) {
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-l: argument missing");
+                LOG_ERR(EINVAL, "-l: argument missing");
                 goto cleanup;
             }
             if((temperr=lock_files(commands[i++]))==ERR) {
@@ -206,8 +198,7 @@ static int parse_command(char** commands) {
         }
         else if(!strcmp(commands[i], "-u")) {
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-u: argument missing");
+                LOG_ERR(EINVAL, "-u: argument missing");
                 goto cleanup;
             }
             if((temperr=unlock_files(commands[i++]))==ERR) {
@@ -216,8 +207,7 @@ static int parse_command(char** commands) {
         }
         else if(!strcmp(commands[i], "-c")) {
             if((is_command(commands[++i]))==TRUE) {
-                errno=EINVAL;
-                perror("-c: argument missing");
+                LOG_ERR(EINVAL, "-c: argument missing");
                 goto cleanup;
             }
             if((temperr=remove_files(commands[i++]))==ERR) {
@@ -228,8 +218,7 @@ static int parse_command(char** commands) {
             i++;    // already elaborated
         }
         else {
-            errno=EINVAL;
-            perror("invalid flag");
+            LOG_ERR(EINVAL, "invalid flag");
             goto cleanup;
         }
         sleep(sleep_time);      // if -t has been used, sleep for the time specified
@@ -266,19 +255,18 @@ static int set_sock(char* sockname) {
     int temperr;    // used for error codes
 
     if(!sockname) {
-        errno=EINVAL;
-        perror("-f - socket address missing");
+        LOG_ERR(EINVAL, "-f - socket address missing");
         return ERR;
     }
 
     stimespec* timer=(stimespec*)malloc(sizeof(stimespec));
     if(!timer) {
-        perror("-f - pre-connection: memerror");
+        LOG_ERR(errno, "-f - pre-connection: memerr");
         return ERR;
     }
 
     if((clock_gettime(CLOCK_REALTIME, timer))==ERR) {
-        perror("-f - pre-connection: getting clock time");
+        LOG_ERR(errno, "-f - pre-connection: getting clock time");
         if(timer) {free(timer); timer=NULL;}
         return ERR;
     }
@@ -286,7 +274,7 @@ static int set_sock(char* sockname) {
     timer->tv_sec+=conn_timeout;
 
     if((temperr=openConnection(sockname, conn_delay, *timer))==ERR) {
-        perror("-f - connecting");
+        LOG_ERR(errno, "-f - connecting");
         if(timer) {free(timer); timer=NULL;}
         return ERR;
     }
@@ -337,8 +325,7 @@ static int send_files(char* arg) {
     int temperr;
 
     if((token=strtok_r(arg, ",", &saveptr))==NULL) {
-        errno=EINVAL;
-        perror("-W - argument was invalid");
+        LOG_ERR(EINVAL, "-W - argument was invalid");
         return ERR;
     }
 
@@ -377,6 +364,7 @@ static int send_files(char* arg) {
             }
             LOG_ERR(errno, "-w - error code");  // TODO REMOVE
         }
+        token=strtok_r(NULL, ",", &saveptr);
     }
 
     return SUCCESS;
@@ -386,13 +374,13 @@ static int send_files(char* arg) {
 // -d | specifies the folder in which to save files downloaded from the file-server
 static int set_save_dir(char* dir) {
     if(!dir) {
-        perror("-d - specify a valid directory");
+        LOG_ERR(errno, "-d - specify a valid directory");
         return ERR;
     }
 
     save_dir=(char*)malloc((strlen(dir)+1)*sizeof(char));
     if(!save_dir) {
-        perror("-d - setting save directory");
+        LOG_ERR(errno, "-d - setting save directory");
         return ERR;
     }
     strncpy(save_dir, dir, strlen(dir)+1);
@@ -404,13 +392,13 @@ static int set_save_dir(char* dir) {
 // -D | specifies the folder in which to save files discarded by the file-server
 static int set_miss_dir(char* dir) {
     if(!dir) {
-        perror("-D - specify a valid directory");
+        LOG_ERR(errno, "-D - specify a valid directory");
         return ERR;
     }
 
     miss_dir=(char*)malloc((strlen(dir)+1)*sizeof(char));
     if(!miss_dir) {
-        perror("-D - setting save directory");
+        LOG_ERR(errno, "-D - setting save directory");
         return ERR;
     }
     strncpy(miss_dir, dir, strlen(dir)+1);
@@ -434,7 +422,7 @@ static int read_files(char* arg) {
     if(save_dir) {
         // copying the save directory into a string for later elaboration
         pathname=(char*)malloc(UNIX_PATH_MAX*sizeof(char));
-        if(!pathname) { perror("-r - memerror"); return ERR; }
+        if(!pathname) { LOG_ERR(errno, "-r - memerror"); return ERR; }
         strcpy(pathname, save_dir);
          // saving save_dir's last char position
          for(i=0; i<UNIX_PATH_MAX; i++) if(pathname[i]=='\0') break;
@@ -442,15 +430,14 @@ static int read_files(char* arg) {
 
     // getting the first token
     if((token=strtok_r(arg, ",", &saveptr))==NULL) {
-        errno=EINVAL;
-        perror("-r - argument was invalid");
+        LOG_ERR(EINVAL, "-r - argument was invalid");
         goto cleanup_2;
     }
 
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
         if((temperr=readFile(token, &buffer, size))==ERR) {
-            perror("-r - error while writing files");
+            LOG_ERR(errno, "-r - error while writing files");
             goto cleanup_2;
         }
         // if a save folder has been specified, save the file obtained there; else, discard it
@@ -460,15 +447,15 @@ static int read_files(char* arg) {
             if(buffer) {
                 strncpy(pathname, token, UNIX_PATH_MAX-strlen(pathname)-1);    // composing the full path to save the file
                 if((fd=open(token, O_CREAT, O_RDWR))==ERR) {    // creating file
-                    perror("-r - creating file on disk");
+                    LOG_ERR(errno, "-r - creating file on disk");
                     goto cleanup_1;
                 }
                 if((temperr=write(fd, buffer, (*size)))==ERR) {    // writing file
-                    perror("-r - writing file on disk");
+                    LOG_ERR(errno, "-r - writing file on disk");
                     goto cleanup_1;
                 }
                 if((temperr=close(fd))==ERR) {      // closing file
-                    perror("-r - finalizing write on disk");
+                    LOG_ERR(errno, "-r - closing file");
                     goto cleanup_1;
                 }
                 pathname[i]='\0';   // resetting save_dir's path
@@ -506,8 +493,7 @@ static int read_n_files(char* arg) {
     // if the argument is valid, extract its value
     if(arg) {
         if((token=strtok_r(arg, "=", &saveptr))==NULL) {
-            errno=EINVAL;
-            perror("-R - invalid parameter");
+            LOG_ERR(EINVAL, "-R - invalid parameter");
             return ERR;
         }
         if(token) token=strtok_r(NULL, "\n", &saveptr);
@@ -516,7 +502,7 @@ static int read_n_files(char* arg) {
 
     // send the request to read the n files
     if((result=readNFiles(n, save_dir))==ERR) {
-        perror("-R - error reading files");
+        LOG_ERR(errno, "-R - error reading files");
         return ERR;
     }
 

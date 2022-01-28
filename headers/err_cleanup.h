@@ -27,9 +27,6 @@
 */
 #endif
 
-// Definition of the output-printing function
-#define LOG_OUTPUT(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
-
 // Definition an error-management printing function
 #define LOG_ERR(err_code, err_desc) \
   errno=err_code; \

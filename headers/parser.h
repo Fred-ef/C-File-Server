@@ -19,7 +19,7 @@
 
 typedef struct stat sstat;     // Redefinition of the stat struct, used to retrieve information about a certain file
 
-int parse(char*, char*, unsigned*);     // Takes as input the parameter to search, the file in which the parameter is to be searched and the variable in which to save its value
+int parse(char*, char*, unsigned long*);     // Takes as input the parameter to search, the file in which the parameter is to be searched and the variable in which to save its value
 int parse_s(char*, char*, char**);     // Takes as input the string parameter to search, the file in which the parameter is to be searched and the string in which to save its value
 
 #endif     // parser_h

@@ -23,6 +23,11 @@ byte t_flag;      // used in order to temporally distantiate consecutive request
 byte sleep_time;      // used to set a sleep between consecutive requests
 
 byte conn_timeout;    // used to set a time-out to connection attempts
-unsigned short conn_delay;      // used to set a time margin between consecutive connection attempts
+unsigned conn_delay;      // used to set a time margin between consecutive connection attempts
+
+
+// definition of the output-printing function (only prints if p is flagged)
+#define LOG_OUTPUT(fmt, ...) \
+    if(p_flag) fprintf(stdout, fmt, ##__VA_ARGS__);
 
 #endif // client_h

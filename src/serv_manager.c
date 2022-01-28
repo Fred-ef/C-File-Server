@@ -1,8 +1,8 @@
 #include "serv_manager.h"
 
 sc_cache* server_cache=NULL;      // the actual cache structure used by the server
-unsigned server_byte_size=0;        // indicates the capacity of the server in terms of bytes of memory
-unsigned server_file_size=0;        // indicates the capacity of the server in terms of files in memory
+size_t server_byte_size=0;        // indicates the capacity of the server in terms of bytes of memory
+size_t server_file_size=0;        // indicates the capacity of the server in terms of files in memory
 
 unsigned thread_pool_cap=0;     // Indicates the maximum number of worker-threads the server can manage at the same time
 char* sock_addr=NULL;       // will hold the server's main socket address     TODO FREE ALLA FINE
@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
 
     // #################### DECLARATIONS ####################
 
-    unsigned short i;       // for loop index
+    unsigned i;       // for loop index
     short temperr;      // memorizes error codes in syscalls
     int* int_buf;        // acts as a buffer for int-value-reads
     short fd_sk, fd_cl;        // file descriptor for the manager's sockets and for clients connection

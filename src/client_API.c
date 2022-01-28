@@ -97,9 +97,9 @@ int openFile(const char* pathname, int flags) {
     int i;
     int res=SUCCESS;    // will hold the result of the operation
     unsigned subst_files_num=0;     // will hold the number of files expelled from the cache
-    unsigned subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
+    size_t subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
     char* subst_files_name=NULL;    // will hold the name of each of the files expelled (one at a time)
-    unsigned subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
+    size_t subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
     byte* subst_files_data=NULL;    // will hold the data of each of the files expelled (one at a time)
     char* final_path=NULL;  // will hold the path to save each of the the expelled file (one at a time)
 
@@ -140,13 +140,13 @@ int openFile(const char* pathname, int flags) {
     // receiving the expelled files
     for(i=0; i<subst_files_num; i++) {
         subst_files_name_len=0;
-        readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
+        readn(fd_sock, (void*)&subst_files_name_len, sizeof(size_t));    // reading pathname length
         if(subst_files_name_len<0) {errno=res; goto cleanup_open;}
         subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
         if(!subst_files_name) return ERR;   // fatal error
         memset(subst_files_name, '\0', subst_files_name_len+1);
         readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
-        readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
+        readn(fd_sock, (void*)&subst_files_size, sizeof(size_t));     // reading file size
         if(subst_files_size<0) {errno=res; goto cleanup_open;}
         subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
         if(!subst_files_data) return ERR;   // fatal error
@@ -230,11 +230,12 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 
     if(size==0) (*buf)=NULL;    // empty file, return null as its content
     else {  // receives the file requested
-        (*buf)=(void*)malloc((*size)*sizeof(byte));
+        (*buf)=(void*)calloc((*size), sizeof(byte));
         if(!buf) return ERR;
-        readn(fd_sock, (*buf), (*size));    // gets the actual file content
+        readn(fd_sock, (void*)(*buf), (*size));    // gets the actual file content
         if(!(*buf)) {errno=EIO; goto cleanup_read;}
     }
+    LOG_DEBUG("Content: %s\n", (char*)(*buf));  // TODO REMOVE
 
     if(int_buf) free(int_buf);
     return SUCCESS;       // the file has been opened on the server
@@ -285,7 +286,7 @@ int readNFiles(int N, const char* dirname) {
             // receives the name of the file
             file_name=(char*)malloc((*size)*sizeof(char));
             if(!file_name) return ERR;
-            readn(fd_sock, (void*)file_name, (*size));     // gets the size of the file to read
+            readn(fd_sock, (void*)file_name, (*size));     // gets the name of the file to read
             if(!file_name) {errno=EIO; break;}
             if(size) free(size);
 
@@ -298,7 +299,7 @@ int readNFiles(int N, const char* dirname) {
             // reading the file
             if((*size)==0) buf=NULL;    // empty file, return null as its content
             else {  // receives the file requested
-                buf=(void*)malloc((*size)*sizeof(byte));
+                buf=(void*)calloc((*size), sizeof(byte));
                 if(!buf) return ERR;
                 readn(fd_sock, (void*)buf, (*size));    // gets the actual file content
                 if(!(*buf)) {errno=EIO; break;}
@@ -351,9 +352,9 @@ int writeFile(const char* pathname, const char* dirname) {
     int i;
     int res=SUCCESS;    // will hold the result of the operation
     unsigned subst_files_num=0;     // will hold the number of files expelled from the cache
-    unsigned subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
+    size_t subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
     char* subst_files_name=NULL;    // will hold the name of each of the files expelled (one at a time)
-    unsigned subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
+    size_t subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
     byte* subst_files_data=NULL;    // will hold the data of each of the files expelled (one at a time)
     char* final_path=NULL;  // will hold the path to save each of the the expelled file (one at a time)
 
@@ -363,11 +364,11 @@ int writeFile(const char* pathname, const char* dirname) {
     fileStat=(struct stat*)malloc(sizeof(struct stat));     // getting file struct
     if(!fileStat) return ERR;
     if((fstat(fd, fileStat))==ERR) goto cleanup_write;  // getting file info
-    unsigned fileSize=(unsigned)fileStat->st_size;  // getting file size
+    size_t file_size=(size_t)fileStat->st_size;  // getting file size
 
-    buf=(byte*)malloc(fileSize*sizeof(byte));   // allocating file space
+    buf=(byte*)malloc(file_size*sizeof(byte));   // allocating file space
     if(!buf) return ERR;
-    if((read(fd, buf, fileSize))==ERR) goto cleanup_write;     // getting file's raw data into the buffer
+    if((read(fd, buf, file_size))==ERR) goto cleanup_write;     // getting file's raw data into the buffer
     if((close(fd))==ERR) return ERR;
 
 
@@ -389,13 +390,12 @@ int writeFile(const char* pathname, const char* dirname) {
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server could not get the path, abort the operation
 
     // communicates file size
-    *int_buf=fileSize;
-    writen(fd_sock, (void*)int_buf, sizeof(int));      // tells the server what read size to expect next
+    writen(fd_sock, (void*)&file_size, sizeof(size_t));      // tells the server what read size to expect next
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_write;}       // if the server couldn't process the size, abort the operation
 
     // sends the file data
-    writen(fd_sock, (void*)buf, fileSize);  // sends the actual file
+    writen(fd_sock, (void*)buf, file_size);  // sends the actual file
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) res=*int_buf;   // if the server coudln't read the file, save the error
 
@@ -411,13 +411,13 @@ int writeFile(const char* pathname, const char* dirname) {
     for(i=0; i<subst_files_num; i++) {
         LOG_DEBUG("Receiving expelled file\n"); // TODO remove
         subst_files_name_len=0;
-        readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
+        readn(fd_sock, (void*)&subst_files_name_len, sizeof(size_t));    // reading pathname length
         if(subst_files_name_len<0) {errno=res; goto cleanup_write;}
         subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
         if(!subst_files_name) return ERR;   // fatal error
         memset(subst_files_name, '\0', subst_files_name_len+1);
         readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
-        readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
+        readn(fd_sock, (void*)&subst_files_size, sizeof(size_t));     // reading file size
         if(subst_files_size<0) {errno=res; goto cleanup_write;}
         subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
         if(!subst_files_data) return ERR;   // fatal error
@@ -484,9 +484,9 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     int i;
     int res=SUCCESS;    // will hold the result of the operation
     unsigned subst_files_num=0;     // will hold the number of files expelled from the cache
-    unsigned subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
+    size_t subst_files_name_len=0;    // will hold the length of the name of each of the files expelled (one at a time)
     char* subst_files_name=NULL;    // will hold the name of each of the files expelled (one at a time)
-    unsigned subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
+    size_t subst_files_size=0;    // will hold the size of each of the files expelled (one at a time)
     byte* subst_files_data=NULL;    // will hold the data of each of the files expelled (one at a time)
     char* final_path=NULL;  // will hold the path to save each of the the expelled file (one at a time)
 
@@ -529,13 +529,13 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     // receiving the expelled files
     for(i=0; i<subst_files_num; i++) {
         subst_files_name_len=0;
-        readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
+        readn(fd_sock, (void*)&subst_files_name_len, sizeof(size_t));    // reading pathname length
         if(subst_files_name_len<0) {errno=res; goto cleanup_append;}
         subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
         if(!subst_files_name) return ERR;   // fatal error
         memset(subst_files_name, '\0', subst_files_name_len+1);
         readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
-        readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
+        readn(fd_sock, (void*)&subst_files_size, sizeof(size_t));     // reading file size
         if(subst_files_size<0) {errno=res; goto cleanup_append;}
         subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
         if(!subst_files_data) return ERR;   // fatal error

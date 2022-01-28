@@ -16,10 +16,10 @@ byte nth_chance;      // indicates the "chance" order of the algorithm (2 for se
 // defining the "second chance cache" structure
 typedef struct sc_cache {
     conc_hash_table* ht;
-    unsigned max_file_number;
-    unsigned max_byte_size;
-    unsigned curr_file_number;
-    unsigned curr_byte_size;
+    unsigned long max_file_number;
+    unsigned long max_byte_size;
+    unsigned long curr_file_number;
+    unsigned long curr_byte_size;
     pthread_mutex_t mem_check_mtx;
 } sc_cache;
 
@@ -27,7 +27,7 @@ typedef struct sc_cache {
 typedef struct file {
     char* name;     // represents the file's identifier inside the file server
     // HUFFMAN TREE CONTAINING THE DECOMPRESSION INFORMATION
-    unsigned long file_size;
+    size_t file_size;
     byte* data;     // represents the actual information contained in the file
     byte f_lock;     // flag indicating if and by whom the file is currently locked
     byte f_open;     // flag indicating if the file is currently open
@@ -39,8 +39,8 @@ typedef struct file {
 // MAIN OPERATIONS
 sc_cache* sc_cache_create(int, int);                // returns an empty sc-cache data structure of capacity and size(bytes) given
 int sc_cache_insert(sc_cache*, file*, file***);      // pushes a file in the cache, as a "recently used" file, getting the expelled files
-int sc_algorithm(sc_cache*, unsigned, file***, bool, const char*);         // second chance replacement algorithm
-int sc_lookup(sc_cache*, char*, op_code, const int*, byte**, byte*, unsigned*, file***);      // executes the request specified in the operation code
+int sc_algorithm(sc_cache*, size_t, file***, bool, const char*);         // second chance replacement algorithm
+int sc_lookup(sc_cache*, char*, op_code, const int*, byte**, byte*, size_t*, file***);      // executes the request specified in the operation code
 file* file_create(char* pathname);      // returns an empty file with pathname as its name
 
 #endif // sc_cache_h

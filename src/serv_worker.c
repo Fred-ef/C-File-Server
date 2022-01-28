@@ -246,10 +246,10 @@ static int worker_file_open(int client_fd) {
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
-        unsigned temp_path_len=strlen(temp->name);
-        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) res=ERR;
+        size_t temp_path_len=strlen(temp->name);
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
-        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);
@@ -286,7 +286,7 @@ static int worker_file_read(int client_fd) {
     int path_len;   // length of the pathname
 
     byte* data_read=NULL;   // will contain the returned file
-    unsigned bytes_read=0;  // will contain the size of the returned file
+    size_t bytes_read=0;  // will contain the size of the returned file
 
     *int_buf=SUCCESS;   // the request has been accepted
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
@@ -316,7 +316,7 @@ static int worker_file_read(int client_fd) {
     }
 
     // communicating the size of the file to read
-    if((writen(client_fd, (void*)&bytes_read, sizeof(unsigned)))==ERR) goto cleanup_w_read;
+    if((writen(client_fd, (void*)&bytes_read, sizeof(size_t)))==ERR) goto cleanup_w_read;
 
     // sending the file (ONLY IF it is not empty)
     if(bytes_read)
@@ -408,7 +408,7 @@ static int worker_file_write(int client_fd) {
     if(!int_buf) return ERR;    // errno already set by the call
     char* pathname=NULL;     // will hold the pathname of the file to write
     int path_len;   // length of the pathname
-    unsigned bytes_written;    // dimension of the file
+    size_t bytes_written;    // dimension of the file
     byte* data_written=NULL;     // file data
     file** subst_files=NULL;    // will hold the returned files (in the case of a write in a full cache)
     unsigned subst_files_num=0;   // will hold the number of returned files
@@ -434,7 +434,7 @@ static int worker_file_write(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
 
     // reading the file size
-    if((readn(client_fd, (void*)&bytes_written, sizeof(unsigned)))==ERR) goto cleanup_w_write;
+    if((readn(client_fd, (void*)&bytes_written, sizeof(size_t)))==ERR) goto cleanup_w_write;
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write;
 
@@ -474,10 +474,10 @@ static int worker_file_write(int client_fd) {
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
-        unsigned temp_path_len=strlen(temp->name);
-        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) res=ERR;
+        size_t temp_path_len=strlen(temp->name);
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
-        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);
@@ -516,7 +516,7 @@ static int worker_file_write_app(int client_fd) {
     if(!int_buf) return ERR;    // errno already set by the call
     char* pathname=NULL;     // will hold the pathname of the file to write onto
     int path_len;   // length of the pathname
-    unsigned bytes_written;    // dimension of the write block
+    size_t bytes_written;    // dimension of the write block
     byte* data_written=NULL;     // write block data
     file** subst_files=NULL;    // will hold the returned files (in the case of a write in a full cache)
     unsigned subst_files_num=0;   // will hold the number of returned files
@@ -583,10 +583,10 @@ static int worker_file_write_app(int client_fd) {
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
-        unsigned temp_path_len=strlen(temp->name);
-        if((writen(client_fd, (void*)&temp_path_len, sizeof(unsigned)))==ERR) res=ERR;
+        size_t temp_path_len=strlen(temp->name);
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
-        if((writen(client_fd, (void*)&(temp->file_size), sizeof(unsigned)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);

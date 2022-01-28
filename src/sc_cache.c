@@ -3,22 +3,20 @@
 byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
 
 static int open_file(file* file, const int* usr_id);
-static int read_file(file* file_to_read, byte** data_read, unsigned* bytes_used, const int* usr_id);
+static int read_file(file* file_to_read, byte** data_read, size_t* bytes_used, const int* usr_id);
 static int lock_file(file* file, const int* usr_id);
 static int unlock_file(file* file, const int* usr_id);
 static int remove_file(file* file, const int* usr_id);
 static int close_file(file* file, const int* usr_id);
-static int write_file(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id);
-static int write_append(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id);
+static int write_file(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id);
+static int write_append(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id);
 static int is_duplicate(file* file1, file* file2);
 static int int_ptr_cmp(const void* x, const void* y);
 
 // TODO -   controllare che si liberi la cache
 // TODO -   controllare che si liberino le code di file aperti
-// TODO -   controllare che si liberi la copia dei file letti
 // TODO -   aggiungere cleanup per pulire l'intera cache dai file
 // TODO -   ridurre numero files/bytes occupati dopo remove
-// TODO -   controllare che esistano capacity misses (su write)
 
 
 sc_cache* sc_cache_create(int max_file_number, int max_byte_size) {
@@ -148,7 +146,7 @@ cleanup_insert:
 }
 
 
-int sc_algorithm(sc_cache* cache, unsigned size_var, file*** replaced_files, bool is_insert, const char* filename) {
+int sc_algorithm(sc_cache* cache, size_t size_var, file*** replaced_files, bool is_insert, const char* filename) {
     if(!cache) {LOG_ERR(EINVAL, "replace: cache not initialized"); return ERR;}
     if(!replaced_files) {LOG_ERR(EINVAL, "expelled files' array not initialized"); return EINVAL;}
 
@@ -215,7 +213,7 @@ int sc_algorithm(sc_cache* cache, unsigned size_var, file*** replaced_files, boo
 }
 
 
-int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, byte** data_read, byte* data_written, unsigned* bytes_used, file*** replaced_files) {
+int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, byte** data_read, byte* data_written, size_t* bytes_used, file*** replaced_files) {
     // ########## CONTROL SECTION ##########
     if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized"); return ERR;}
     if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified"); return ERR;}
@@ -399,7 +397,7 @@ static int open_file(file* file, const int* usr_id) {
 
 
 // helper function: returns a copy of the file's data if previously opened
-static int read_file(file* file_to_read, byte** data_read, unsigned* bytes_used, const int* usr_id) {
+static int read_file(file* file_to_read, byte** data_read, size_t* bytes_used, const int* usr_id) {
     int i;  // index for loop
     int res;
 
@@ -493,7 +491,7 @@ static int close_file(file* file, const int* usr_id) {
 
 
 // helper function: writes the whole file if the last operation on it was create&lock
-static int write_file(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id) {
+static int write_file(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id) {
     if(!file->f_write || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
@@ -512,7 +510,7 @@ static int write_file(file* file, byte* data_written, const unsigned* bytes_used
 
 
 // helper function: writes the data passed as arg in append mode
-static int write_append(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id) {
+static int write_append(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id) {
     if(file->f_lock && (file->f_lock)!=(*usr_id)) return EPERM;    // another user has a lock on this file
 
     int i=0, j;  // for loop index
@@ -522,7 +520,7 @@ static int write_append(file* file, byte* data_written, const unsigned* bytes_us
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
-    unsigned write_size=file->file_size+(*bytes_used);
+    size_t write_size=file->file_size+(*bytes_used);
     byte* updated_data=(byte*)malloc(write_size*sizeof(byte));
     if(!updated_data) return ERR;   // fatal error, errno already set by the call
 
