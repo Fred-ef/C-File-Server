@@ -105,7 +105,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
         if(((ht->table)[idx]).entry==NULL || ((ht->table)[idx]).entry==(ht->mark)) {
 
             ((ht->table)[idx]).entry=(void*)new_file;   // saving the file in the current entry
-            ((ht->table)[idx]).r_used=1;    // setting the used-bit
+            ((ht->table)[idx]).r_used=nth_chance-1;    // setting the used-bit
             res=FOUND;      // exiting the while-loop
 
             LOG_DEBUG("PUSHED CORRECTLY\n\n#FILE: %d\t#BYTES: %d\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
@@ -286,8 +286,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
         // if there's a match, perform the correct operation base on the op_code
         else if(!strcmp(file_name, ((file*)ht->table[idx].entry)->name)) {
             temp_file=(file*)ht->table[idx].entry;  // shortcut to current file
-            ht->table[idx].r_used=1;    // since the file has just been referred, update its used-bit
-            if(op!=WRITE_F) temp_file->f_write=0;   // if the operation isn't a writeFile, disables the operation
+            ht->table[idx].r_used=nth_chance-1;    // since the file has just been referred, update its used-bit
 
             // Calls a different function based on the operation flag
             if(op==OPEN_F) {    // opens the file if it's not locked
@@ -329,6 +328,9 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
                 res=close_file(temp_file, usr_id);     // closes file for the user
                 if(res==ERR) {LOG_ERR(errno, "lookup: closing file"); return ERR;}  // a fatal error (memerr/mutexerr) has occurred
             }
+
+            // disables the writeFile operation (at this point, the first operation has been executed)
+            if(res==SUCCESS) temp_file->f_write=0;
         }
         
         // else, continue probing
@@ -367,7 +369,7 @@ file* file_create(char* pathname) {
     new_file->data=NULL;
     new_file->f_lock=0;
     new_file->f_open=0;
-    new_file->f_write=1;
+    new_file->f_write=0;
     new_file->file_size=0;
     new_file->name=(char*)calloc(strlen(pathname)+1, sizeof(char));
     if(!new_file) return NULL;  // mem error
@@ -401,12 +403,11 @@ static int read_file(file* file_to_read, byte** data_read, unsigned* bytes_used,
     int i;  // index for loop
     int res;
 
-    if(file_to_read->f_lock && (file_to_read->f_lock)!=(*usr_id)) return EBUSY;    // if file is locked by another user, return error
     res=ll_search(file_to_read->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
-    // file was opened by the user
+    // file was opened by the user, so they can read it
     if(file_to_read->file_size) {   // if the file has any data, copies it into the buffer passed, allocating it first
         (*data_read)=(byte*)malloc((file_to_read->file_size)*sizeof(byte));
         if(!(*data_read)) return ERR;  // fatal error, errno already set by the call
@@ -440,10 +441,16 @@ static int lock_file(file* file, const int* usr_id) {
 }
 
 
-// helper function: if the lock is held by the user, releases it; else, just returns successfully
+// helper function: if the lock is held by the user, releases it; else, return an error
 static int unlock_file(file* file, const int* usr_id) {
+    int res;
+
     LOG_DEBUG("UNLOCKING!!!\n");
-    if(file->f_lock && (file->f_lock!=(*usr_id))) return SUCCESS;  // user wasn't holding any lock
+    if(file->f_lock!=(*usr_id)) return EPERM;   // user wasn't holding the lock
+
+    res=ll_search(file->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
+    if(!res) return EPERM;      // file not opened: operation not permitted
+    if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
     file->f_lock=0;     // resets lock
     return SUCCESS;
@@ -471,6 +478,11 @@ static int remove_file(file* file, const int* usr_id) {
 // helper function: closes the file for the user; if it wasn't opened by the user, returns successfully
 static int close_file(file* file, const int* usr_id) {
     int temperr;
+    int res;
+
+    res=ll_search(file->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
+    if(!res) return EPERM;      // file not opened: operation not permitted
+    if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
     if(file->f_lock==(*usr_id)) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
     if((temperr=ll_remove(file->open_list, (void*)usr_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
@@ -482,7 +494,7 @@ static int close_file(file* file, const int* usr_id) {
 
 // helper function: writes the whole file if the last operation on it was create&lock
 static int write_file(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id) {
-    if(file->data || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
+    if(file->f_write || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
     LOG_DEBUG("Doing the writing :D\n");

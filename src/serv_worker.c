@@ -214,6 +214,7 @@ static int worker_file_open(int client_fd) {
     }
     LOG_DEBUG("FILE CREATED, OPENED & LOCKED!\n");
 
+    new_file->f_write=1;    // enabling the writeFile operation
     *int_buf=SUCCESS;   // tell the client the operation succeeded
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
 

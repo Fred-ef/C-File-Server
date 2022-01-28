@@ -131,19 +131,19 @@ int openFile(const char* pathname, int flags) {
 
     // receives the number of expelled files
     readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
-    if(subst_files_num<0) {errno=EINTR; goto cleanup_open;}
+    if(subst_files_num<0) {errno=res; goto cleanup_open;}
 
     // receiving the expelled files
     for(i=0; i<subst_files_num; i++) {
         subst_files_name_len=0;
         readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
-        if(subst_files_name_len<0) {errno=EINTR; goto cleanup_open;}
+        if(subst_files_name_len<0) {errno=res; goto cleanup_open;}
         subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
         if(!subst_files_name) return ERR;   // fatal error
         memset(subst_files_name, '\0', subst_files_name_len+1);
         readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
         readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
-        if(subst_files_size<0) {errno=EINTR; goto cleanup_open;}
+        if(subst_files_size<0) {errno=res; goto cleanup_open;}
         subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
         if(!subst_files_data) return ERR;   // fatal error
         readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
@@ -158,11 +158,11 @@ int openFile(const char* pathname, int flags) {
             strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
             strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
             if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
-                errno=EINTR;
+                errno=res;
                 goto cleanup_open;
             }
             if((write(temp_fd, (void*)subst_files_data, subst_files_size))==ERR) {
-                errno=EINTR;
+                errno=res;
                 if((close(temp_fd))==ERR) return ERR;
                 goto cleanup_open;
             }
@@ -360,7 +360,7 @@ int writeFile(const char* pathname, const char* dirname) {
 
     buf=(byte*)malloc(fileSize*sizeof(byte));   // allocating file space
     if(!buf) return ERR;
-    if((readn(fd, buf, fileSize))==ERR) goto cleanup_write;     // getting file's raw data into the buffer
+    if((read(fd, buf, fileSize))==ERR) goto cleanup_write;     // getting file's raw data into the buffer
     if((close(fd))==ERR) return ERR;
 
 
@@ -397,7 +397,7 @@ int writeFile(const char* pathname, const char* dirname) {
 
     // receives the number of expelled files
     readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
-    if(subst_files_num<0) {errno=EINTR; goto cleanup_write;}
+    if(subst_files_num<0) {errno=res; goto cleanup_write;}
     LOG_DEBUG("LOOK IM HERE\n");
 
     // receiving the expelled files
@@ -405,13 +405,13 @@ int writeFile(const char* pathname, const char* dirname) {
         LOG_DEBUG("Receiving expelled file\n"); // TODO remove
         subst_files_name_len=0;
         readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
-        if(subst_files_name_len<0) {errno=EINTR; goto cleanup_write;}
+        if(subst_files_name_len<0) {errno=res; goto cleanup_write;}
         subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
         if(!subst_files_name) return ERR;   // fatal error
         memset(subst_files_name, '\0', subst_files_name_len+1);
         readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
         readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
-        if(subst_files_size<0) {errno=EINTR; goto cleanup_write;}
+        if(subst_files_size<0) {errno=res; goto cleanup_write;}
         subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
         if(!subst_files_data) return ERR;   // fatal error
         readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
@@ -426,11 +426,11 @@ int writeFile(const char* pathname, const char* dirname) {
             strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
             strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
             if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
-                errno=EINTR;
+                errno=res;
                 goto cleanup_write;
             }
             if((write(temp_fd, (void*)subst_files_data, subst_files_size))==ERR) {
-                errno=EINTR;
+                errno=res;
                 if((close(temp_fd))==ERR) return ERR;
                 goto cleanup_write;
             }
@@ -515,19 +515,19 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 
     // receives the number of expelled files
     readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
-    if(subst_files_num<0) {errno=EINTR; goto cleanup_append;}
+    if(subst_files_num<0) {errno=res; goto cleanup_append;}
 
     // receiving the expelled files
     for(i=0; i<subst_files_num; i++) {
         subst_files_name_len=0;
         readn(fd_sock, (void*)&subst_files_name_len, sizeof(unsigned));    // reading pathname length
-        if(subst_files_name_len<0) {errno=EINTR; goto cleanup_append;}
+        if(subst_files_name_len<0) {errno=res; goto cleanup_append;}
         subst_files_name=(char*)calloc(subst_files_name_len+1, sizeof(char));
         if(!subst_files_name) return ERR;   // fatal error
         memset(subst_files_name, '\0', subst_files_name_len+1);
         readn(fd_sock, (void*)subst_files_name, subst_files_name_len);     // reading pathname
         readn(fd_sock, (void*)&subst_files_size, sizeof(unsigned));     // reading file size
-        if(subst_files_size<0) {errno=EINTR; goto cleanup_append;}
+        if(subst_files_size<0) {errno=res; goto cleanup_append;}
         subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
         if(!subst_files_data) return ERR;   // fatal error
         readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
@@ -541,11 +541,11 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
             strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
             strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
             if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
-                errno=EINTR;
+                errno=res;
                 goto cleanup_append;
             }
             if((write(temp_fd, (void*)subst_files_data, subst_files_size))==ERR) {
-                errno=EINTR;
+                errno=res;
                 if((close(temp_fd))==ERR) return ERR;
                 goto cleanup_append;
             }

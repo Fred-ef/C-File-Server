@@ -342,12 +342,33 @@ static int send_files(char* arg) {
     }
 
     while(token) {
-        if((temperr=writeFile(token, miss_dir))==ERR) {
-            perror("-W - error while writing files");
-            return ERR;
+        // if the file doesn't yet exist one the server, creates it
+        if((temperr=openFile(token, O_CREATE|O_LOCK))==ERR) {
+            // if it did exist, just open it and write in append
+            if(errno==EEXIST) {
+                if((temperr=openFile(token, 0))==ERR) {    // opening the file
+                    LOG_ERR(errno, "-W - could not open file");
+                    return ERR;
+                }
+                if((temperr=append_files(token))==ERR) {
+                    LOG_ERR(errno, "-W - could not write in append");
+                    return ERR;
+                }
+            }
+            // if it didn't exist but open failed, return error
+            else if(errno!=0) {
+                LOG_ERR(errno, "-W - could not create all files");
+                return ERR;
+            }
         }
-        LOG_DEBUG("Sending file: %s\n", token);
-        token=strtok_r(NULL, ",", &saveptr);
+        // after successful creation, writes the file
+        else {
+            LOG_DEBUG("FILE %s CREATED\n", token);
+            if((temperr=writeFile(token, miss_dir))==ERR) {
+                LOG_ERR(errno, "-W - could not write all files");
+                return ERR;
+            }
+        }
     }
 
     return SUCCESS;
@@ -429,7 +450,7 @@ static int read_files(char* arg) {
             // if the file has been successfully retrieved, write it in the specified folder
             // else, try to retrieve next file
             if(buffer) {
-                strcpy(pathname, token);    // composing the full path to save the file
+                strncpy(pathname, token, UNIX_PATH_MAX-strlen(pathname)-1);    // composing the full path to save the file
                 if((fd=open(token, O_CREAT, O_RDWR))==ERR) {    // creating file
                     perror("-r - creating file on disk");
                     goto cleanup_1;
@@ -624,16 +645,32 @@ static int visit_folder(char* starting_dir, int* rem_files) {
         }
         // if it's a file, send it to the file-server as a new-file or append it if it already exists
         else if(curr_elem_p->d_type==DT_REG) {
+            // if the file doesn't yet exist one the server, creates it
             if((temperr=openFile(curr_elem_name, O_CREATE|O_LOCK))==ERR) {
-                LOG_ERR(errno, "-w - could not send all files");
-                if(errno!=EEXIST && errno!=EINTR) {
+                // if it did exist, just open it and write in append
+                if(errno==EEXIST) {
+                    if((temperr=openFile(curr_elem_name, 0))==ERR) {    // opening the file
+                        LOG_ERR(errno, "-w - could not open file");
+                        goto cleanup_vis_fold;
+                    }
+                    if((temperr=append_files(curr_elem_name))==ERR) {
+                        LOG_ERR(errno, "-w - could not write in append");
+                        goto cleanup_vis_fold;
+                    }
+                }
+                // if it didn't exist but open failed, return error
+                else if(errno!=0) {
+                    LOG_ERR(errno, "-w - could not create all files");
                     goto cleanup_vis_fold;
                 }
             }
-            LOG_DEBUG("FILE %s CREATED\n", curr_elem_name);
-            if((temperr=writeFile(curr_elem_name, save_dir))==ERR) {
-                LOG_ERR(errno, "-w - could not write all files");
-                goto cleanup_vis_fold;
+            // after successful creation, writes the file
+            else {
+                LOG_DEBUG("FILE %s CREATED\n", curr_elem_name);
+                if((temperr=writeFile(curr_elem_name, miss_dir))==ERR) {
+                    LOG_ERR(errno, "-w - could not write all files");
+                    goto cleanup_vis_fold;
+                }
             }
             (*rem_files)--;    // decrement remaining files counter by 1
         }
@@ -659,4 +696,31 @@ static int visit_folder(char* starting_dir, int* rem_files) {
 cleanup_vis_fold:
     if(curr_elem_name) {free(curr_elem_name); curr_elem_name=NULL;}
     return ERR;
+}
+
+
+// writes the file in append to the server
+static int append_files(char* arg) {
+    int temperr;
+    int fd;
+    struct stat* fileStat=NULL;     // will hold file information
+    size_t file_size;     // will hold file name
+    byte* buf=NULL;      // will hold file data
+
+    if((fd=open(arg, O_RDONLY))==ERR) {errno=EINVAL; return ERR;}
+    fileStat=(struct stat*)malloc(sizeof(struct stat));     // getting file struct
+    if(!fileStat) return ERR;
+    if((fstat(fd, fileStat))==ERR) return ERR;  // getting file info
+    file_size=(size_t)fileStat->st_size;  // getting file size
+    buf=(byte*)calloc(file_size, sizeof(byte));
+    if(!buf) return ERR;
+    if((read(fd, buf, file_size))==ERR) return ERR;     // getting file's raw data into the buffer
+    if((close(fd))==ERR) return ERR;
+
+    if((temperr=appendToFile(arg, buf, file_size, miss_dir))==ERR) return ERR;
+
+
+    if(fileStat) free(fileStat);
+    if(buf) free(buf);
+    return SUCCESS;
 }
