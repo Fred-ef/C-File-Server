@@ -48,7 +48,7 @@ void* worker_func(void* arg) {
         {LOG_ERR(EPIPE, "worker: reading client operation"); exit(EXIT_FAILURE);}
 
         op=*int_buf;    // reading the operation code
-        LOG_DEBUG("Serving request type %d of client %d\n", op, client_fd);   // TODO remove
+        LOG_DEBUG("Serving request type %d of client %d\n", *int_buf, client_fd);   // TODO remove
 
         if(op==EOF || op==0) {   // the client closed the connection
             LOG_DEBUG("Client %d disconnecting...\n\n\n", client_fd);
@@ -133,6 +133,16 @@ void* worker_func(void* arg) {
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (close)");}
         }
+        else {
+            *int_buf=EBADR;
+            if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) 
+            {LOG_ERR(EREMOTEIO, "worker: replying to client's bad request");}
+
+            *int_buf=client_fd;    // tells the manager the operation is complete
+            if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
+            {LOG_ERR(EPIPE, "worker: writing to the pipe (close)");}
+        }
+        LOG_DEBUG("Finished\n");    // TODO REMOVE
         if(int_buf) {free(int_buf); int_buf=NULL;}  // resetting int_buf to NULL value
     }
 
@@ -214,7 +224,7 @@ static int worker_file_open(int client_fd) {
     }
     LOG_DEBUG("FILE CREATED, OPENED & LOCKED!\n");
 
-    new_file->f_write=1;    // enabling the writeFile operation
+    if(flags==(O_CREATE|O_LOCK))new_file->f_write=1;    // enabling the writeFile operation
     *int_buf=SUCCESS;   // tell the client the operation succeeded
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
 
@@ -532,7 +542,7 @@ static int worker_file_write_app(int client_fd) {
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
 
     // reading the write block size
-    if((readn(client_fd, (void*)&bytes_written, sizeof(unsigned)))==ERR) goto cleanup_w_write_app;
+    if((readn(client_fd, (void*)&bytes_written, sizeof(size_t)))==ERR) goto cleanup_w_write_app;
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_write_app;
 
@@ -544,6 +554,7 @@ static int worker_file_write_app(int client_fd) {
 
     // writing the file into the cache
     if((temperr=sc_lookup(server_cache, pathname, WRITE_F_APP, &client_fd, NULL, data_written, &bytes_written, &subst_files))!=SUCCESS) {
+        LOG_DEBUG("Append op result: %d\n", temperr);   // TODO REMOVE
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));

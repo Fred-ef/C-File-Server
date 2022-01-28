@@ -494,7 +494,7 @@ static int close_file(file* file, const int* usr_id) {
 
 // helper function: writes the whole file if the last operation on it was create&lock
 static int write_file(file* file, byte* data_written, const unsigned* bytes_used, const int* usr_id) {
-    if(file->f_write || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
+    if(!file->f_write || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
     LOG_DEBUG("Doing the writing :D\n");
@@ -533,6 +533,7 @@ static int write_append(file* file, byte* data_written, const unsigned* bytes_us
     if(file->data) free(file->data);    // destroying old data
     file->data=updated_data;    // updating file's data
     file->file_size=write_size;     // updating file's size
+    LOG_DEBUG("Append completed! ###\n");
 
     return SUCCESS;
 }

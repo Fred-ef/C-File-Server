@@ -10,6 +10,7 @@ char* miss_dir=NULL;    // used to specify the folder in which to save files dis
 // Opens the connection to the server
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
     if(!sockname) {errno=EINVAL; return ERR;}
+    errno=0;
 
     short errtemp;      // used for error-testing in syscalls
     short timeout;      // used for timeout expiration checking
@@ -61,6 +62,7 @@ cleanup_connect:        // executes in case something went wrong and the operati
 
 int closeConnection(const char* sockname) {
     if(!sockname) {errno=EINVAL; goto cleanup_close;}
+    errno=0;
 
     short errtemp;
 
@@ -86,6 +88,7 @@ cleanup_close:
 int openFile(const char* pathname, int flags) {
     if(!pathname) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op=OPEN_F;        // sets the operation code to openFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -103,6 +106,7 @@ int openFile(const char* pathname, int flags) {
     // communicates operation
     *int_buf=op;
     writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
+    LOG_DEBUG("Breakpoint: just written %d\n", *int_buf);  // TODO REMOVE
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_open;}       // if the operation prep failed for some reason, abort the operation
 
@@ -195,6 +199,7 @@ cleanup_open:
 int readFile(const char* pathname, void** buf, size_t* size) {
     if(!pathname || !size || !buf) {errno=EINVAL; return ERR;}       // args cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op=READ_F;        // sets the operation code to readFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -245,6 +250,7 @@ cleanup_read:
 int readNFiles(int N, const char* dirname) {
     if(!dirname) {errno=EINVAL; return ERR;}    // dirname cannot be null
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op = READ_N_F;     // sets the operation code to readNFiles
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -333,6 +339,7 @@ cleanup_readn:
 int writeFile(const char* pathname, const char* dirname) {
     if(!pathname) {errno=EINVAL; return ERR;}   // args cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op = WRITE_F;
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -418,12 +425,12 @@ int writeFile(const char* pathname, const char* dirname) {
         LOG_DEBUG("File content: %s\n\n", (char*)subst_files_data);
 
         // if the miss dir is set, save the file in it
-        if(miss_dir) {
+        if(dirname) {
             int temp_fd;
             final_path=(char*)calloc(UNIX_PATH_MAX, sizeof(char));
             if(!final_path) return ERR;  // fatal error
             memset(final_path, '\0', UNIX_PATH_MAX);
-            strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
+            strncat(final_path, dirname, UNIX_PATH_MAX-strlen(final_path));
             strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
             if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
                 errno=res;
@@ -465,8 +472,10 @@ cleanup_write:
 
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname) {
-    if(!pathname || !buf || !dirname) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
+    if(!pathname || !buf) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
+    LOG_DEBUG("Look I made it this far\nerrno: %d\n", errno);     // TODO REMOVE
 
     op_code op=WRITE_F_APP;
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -483,8 +492,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 
 
     // communicates operation
-    *int_buf=op;
-    writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
+    writen(fd_sock, (void*)&op, sizeof(int));     // tells the server what operation to execute
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}
 
@@ -500,8 +508,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}       // if the server could not get the path, abort the operation
 
     // communicates bytes to write
-    *int_buf=size;
-    writen(fd_sock, (void*)int_buf, sizeof(size_t));      // tells the server what read size to expect next
+    writen(fd_sock, (void*)&size, sizeof(size_t));      // tells the server what read size to expect next
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_append;}       // if the server couldn't process the size, abort the operation
 
@@ -509,6 +516,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     writen(fd_sock, (void*)buf, size);  // sends the actual file
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) res=*int_buf;   // if the server coudln't read the file, store the err
+    LOG_DEBUG("Append result: %d\n", *int_buf);
 
 
     // ##### RETRIEVING SUBSTITUTED FILES #####
@@ -516,6 +524,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     // receives the number of expelled files
     readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
     if(subst_files_num<0) {errno=res; goto cleanup_append;}
+    LOG_DEBUG("Espulsi %d files per miss\n", subst_files_num);  // TODO REMOVE
 
     // receiving the expelled files
     for(i=0; i<subst_files_num; i++) {
@@ -533,12 +542,12 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
         readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
 
         // if the miss dir is set, save the file in it
-        if(miss_dir) {
+        if(dirname) {
             int temp_fd;
             final_path=(char*)calloc(UNIX_PATH_MAX, sizeof(char));
             if(!final_path) return ERR;  // fatal error
             memset(final_path, '\0', UNIX_PATH_MAX);
-            strncat(final_path, miss_dir, UNIX_PATH_MAX-strlen(final_path));
+            strncat(final_path, dirname, UNIX_PATH_MAX-strlen(final_path));
             strncat(final_path, subst_files_name, UNIX_PATH_MAX-strlen(final_path));
             if((temp_fd=open(final_path, O_WRONLY, O_CREAT))==ERR) {
                 errno=res;
@@ -578,6 +587,7 @@ cleanup_append:
 int lockFile(const char* pathname) {
     if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op=LOCK_F;        // sets the operation code to lockFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -621,6 +631,7 @@ cleanup_lock:
 int unlockFile(const char* pathname) {
     if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op=UNLOCK_F;        // sets the operation code to unlockFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -661,6 +672,7 @@ cleanup_unlock:
 int closeFile(const char* pathname) {
     if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op=CLOSE_F;        // sets the operation code to closeFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -700,6 +712,7 @@ cleanup_close:
 int removeFile(const char* pathname) {
     if(pathname==NULL) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
+    errno=0;
 
     op_code op=RM_F;        // sets the operation code to removeFile
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection

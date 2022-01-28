@@ -28,6 +28,7 @@ static int set_time(char*);     // specifies the time the client has to wait bet
 static int lock_files(char*);       // specifies the files to lock on the file-server
 static int unlock_files(char*);     // specifies the files to unlock on the file-server
 static int remove_files(char*);     // attempts to remove the specified files from the file-server
+static int append_files(char*);     // writes the file passed as argument in append
 
 
 
@@ -343,31 +344,38 @@ static int send_files(char* arg) {
 
     while(token) {
         // if the file doesn't yet exist one the server, creates it
-        if((temperr=openFile(token, O_CREATE|O_LOCK))==ERR) {
-            // if it did exist, just open it and write in append
-            if(errno==EEXIST) {
-                if((temperr=openFile(token, 0))==ERR) {    // opening the file
-                    LOG_ERR(errno, "-W - could not open file");
-                    return ERR;
-                }
-                if((temperr=append_files(token))==ERR) {
-                    LOG_ERR(errno, "-W - could not write in append");
-                    return ERR;
-                }
-            }
-            // if it didn't exist but open failed, return error
-            else if(errno!=0) {
-                LOG_ERR(errno, "-W - could not create all files");
+        if((temperr=openFile(token, O_CREATE|O_LOCK))==SUCCESS
+            || (temperr==ERR && errno==0)) {    // non-fatal error, can continue
+            // after successful creation, writes the file
+            LOG_DEBUG("FILE %s CREATED\n", token);
+            if((temperr=writeFile(token, miss_dir))==ERR) {
+                LOG_ERR(errno, "-w - could not write all files");
                 return ERR;
             }
         }
         // after successful creation, writes the file
         else {
-            LOG_DEBUG("FILE %s CREATED\n", token);
-            if((temperr=writeFile(token, miss_dir))==ERR) {
-                LOG_ERR(errno, "-W - could not write all files");
+            // if it did exist, just open it and write in append
+            if(errno==EEXIST) {
+                LOG_DEBUG("File already existed! opening...\n");    // TODO REMOVE
+                if((temperr=openFile(token, 0))==ERR) {    // opening the file
+                    LOG_ERR(errno, "-w - could not open file");
+                    return ERR;
+                }
+                LOG_DEBUG("File opened; writing in append...\n");   // TODO REMOVE
+                if((temperr=append_files(token))==ERR) {
+                    LOG_DEBUG("Oh no!\n");  // TODO REMOVE
+                    LOG_ERR(errno, "-w - could not write in append");
+                    return ERR;
+                }
+                LOG_DEBUG("File written\n");    // TODO REMOVE
+            }
+            // fatal error
+            else {
+                LOG_ERR(errno, "-w - could not create all files");
                 return ERR;
             }
+            LOG_ERR(errno, "-w - error code");  // TODO REMOVE
         }
     }
 
@@ -646,31 +654,38 @@ static int visit_folder(char* starting_dir, int* rem_files) {
         // if it's a file, send it to the file-server as a new-file or append it if it already exists
         else if(curr_elem_p->d_type==DT_REG) {
             // if the file doesn't yet exist one the server, creates it
-            if((temperr=openFile(curr_elem_name, O_CREATE|O_LOCK))==ERR) {
-                // if it did exist, just open it and write in append
-                if(errno==EEXIST) {
-                    if((temperr=openFile(curr_elem_name, 0))==ERR) {    // opening the file
-                        LOG_ERR(errno, "-w - could not open file");
-                        goto cleanup_vis_fold;
-                    }
-                    if((temperr=append_files(curr_elem_name))==ERR) {
-                        LOG_ERR(errno, "-w - could not write in append");
-                        goto cleanup_vis_fold;
-                    }
-                }
-                // if it didn't exist but open failed, return error
-                else if(errno!=0) {
-                    LOG_ERR(errno, "-w - could not create all files");
-                    goto cleanup_vis_fold;
-                }
-            }
-            // after successful creation, writes the file
-            else {
+            if((temperr=openFile(curr_elem_name, O_CREATE|O_LOCK))==SUCCESS
+                || (temperr==ERR && errno==0)) {    // non-fatal error, can continue
+                // after successful creation, writes the file
                 LOG_DEBUG("FILE %s CREATED\n", curr_elem_name);
                 if((temperr=writeFile(curr_elem_name, miss_dir))==ERR) {
                     LOG_ERR(errno, "-w - could not write all files");
                     goto cleanup_vis_fold;
                 }
+            }
+            // after successful creation, writes the file
+            else {
+                // if it did exist, just open it and write in append
+                if(errno==EEXIST) {
+                    LOG_DEBUG("File already existed! opening...\n");    // TODO REMOVE
+                    if((temperr=openFile(curr_elem_name, 0))==ERR) {    // opening the file
+                        LOG_ERR(errno, "-w - could not open file");
+                        goto cleanup_vis_fold;
+                    }
+                    LOG_DEBUG("File opened; writing in append...\n");   // TODO REMOVE
+                    if((temperr=append_files(curr_elem_name))==ERR) {
+                        LOG_DEBUG("Oh no!\n");  // TODO REMOVE
+                        LOG_ERR(errno, "-w - could not write in append");
+                        goto cleanup_vis_fold;
+                    }
+                    LOG_DEBUG("File written\n");    // TODO REMOVE
+                }
+                // fatal error
+                else {
+                    LOG_ERR(errno, "-w - could not create all files");
+                    goto cleanup_vis_fold;
+                }
+                LOG_ERR(errno, "-w - error code");  // TODO REMOVE
             }
             (*rem_files)--;    // decrement remaining files counter by 1
         }
@@ -718,6 +733,7 @@ static int append_files(char* arg) {
     if((close(fd))==ERR) return ERR;
 
     if((temperr=appendToFile(arg, buf, file_size, miss_dir))==ERR) return ERR;
+    LOG_DEBUG("MARKER %d\n", errno);  // TODO REMOVE
 
 
     if(fileStat) free(fileStat);
