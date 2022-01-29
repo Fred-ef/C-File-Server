@@ -1,7 +1,7 @@
 #include "client.h"
 #include "client_API.h"
 
-// TODO fix helper file path
+// TODO write helper file content
 
 char f_flag=0;      // used in order not to duplicate the -f command
 char p_flag=0;      // used in order not to duplicate the -p command
@@ -235,7 +235,7 @@ static int parse_command(char** commands) {
         {LOG_ERR(errno, "sleeping between operations"); return ERR;}
     }
 
-    if((temperr=close_files(open_files_list))==ERR) return ERR;
+    //if((temperr=close_files(open_files_list))==ERR) return ERR;
     closeConnection(sockname);
     return SUCCESS;
 
@@ -813,15 +813,14 @@ static int append_files(char* arg) {
 // closes every file whose name is stored in the queue
 static int close_files(llist* open_files) {
     if(!open_files) {LOG_ERR(EINVAL, "closing files: open files list uninitialized"); return ERR;}
-    int temperr;
     char* temp_file;
 
     // if the list is empty, there is nothing to close
     if(!(ll_isEmpty(open_files))) {
         conc_node aux1=open_files->head;
-        while ((aux1!=NULL)) {
+        while((aux1!=NULL)) {
             temp_file=(char*)(aux1->data);
-            if((temperr=closeFile(temp_file))==ERR && errno!=ENOENT) {
+            if((closeFile(temp_file))==ERR && errno!=ENOENT) {
                 LOG_ERR(errno, "closing all opened files");
                 return ERR;
             }

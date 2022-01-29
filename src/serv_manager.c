@@ -7,9 +7,9 @@ size_t server_file_size=0;        // indicates the capacity of the server in ter
 unsigned long thread_pool_cap=0;     // Indicates the maximum number of worker-threads the server can manage at the same time
 char* sock_addr=NULL;       // will hold the server's main socket address     TODO FREE ALLA FINE
 pthread_t* worker_threads_arr=NULL;      // array of worker threads    TODO FREE ALLA FINE
-pthread_t cleaner_thread;       // cleaner thread, handling file closing and lock-unlocking, should a client crash
 pthread_t logger_thread;        // logger thread, handling statistics/information logging
 conc_queue* requests_queue=NULL;    // the queue worker-threads will use to dispatch client's requests TODO cambiare tipo TODO FREE ALLA FINE
+conc_queue* log_queue=NULL;     // the queue used to pass log-messages to the logger thread
 
 unsigned short fd_pipe_read;    // will hold the read descriptor for the communication pipe between manager and workers
 unsigned short fd_pipe_write;   // will hold the write descriptor for the communication pipe between manager and workers
@@ -52,6 +52,9 @@ int main(int argc, char* argv[]) {
     requests_queue=conc_fifo_create(NULL);      // initializes the concurrent queue
     if(!requests_queue) {LOG_ERR(errno, "manager: creating request queue"); goto cleanup_x;}
 
+    log_queue=conc_fifo_create(NULL);      // initializes the concurrent queue
+    if(!log_queue) {LOG_ERR(errno, "manager: creating log queue"); goto cleanup_x;}
+
     for(i=0; i<thread_pool_cap; i++) {
         if((temperr=pthread_create(&(worker_threads_arr[i]), NULL, worker_func, NULL))==ERR) {
             LOG_ERR(temperr, "manager: creating worker threads");
@@ -59,12 +62,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    /* TODO uncomment
-    if((temperr=pthread_create(&(cleaner_thread), NULL, serv_clean, NULL))==ERR) {
-        LOG_ERR(temperr, "manager: creating cleaner thread");
-        goto cleanup_x;
-    }
-
+    /*
     if((temperr=pthread_create(&(logger_thread), NULL, serv_log, NULL))==ERR) {
         LOG_ERR(temperr, "manager: creating logger thread");
         goto cleanup_x;
@@ -73,6 +71,19 @@ int main(int argc, char* argv[]) {
 
    int_buf=(int*)malloc(sizeof(int));   // allocating memory for the buffer used for int value reads
    if(!int_buf) {LOG_ERR(errno, "manager: allocating int buffer"); goto cleanup_x;}
+
+
+   serv_open_files=(ofl_entry**)calloc(SOMAXCONN, sizeof(ofl_entry*));  // allocating memory for the list tracking open files
+   if(!serv_open_files) {LOG_ERR(errno, "manager: allocating open files list"); goto cleanup_x;}
+
+   // allocating open files list entries
+   for(i=0; i<SOMAXCONN; i++) {
+       (serv_open_files[i])=ofl_create();
+       if(!((serv_open_files[i]))) {
+           LOG_ERR(errno, "manager: allocating open files list entries");
+           goto cleanup_x;
+       }
+   }
 
 
     // #################### PIPE SETUP ####################
@@ -146,8 +157,10 @@ int main(int argc, char* argv[]) {
                     if(!int_buf || !(*int_buf)) {LOG_ERR(EPIPE, "manager: elaborating pipe value"); goto cleanup_x;}
                     // else elaborate the result
                     if(*int_buf<0) {     // the client disconnected
-                        LOG_DEBUG("MANAGER: client %d just disconnected!\n", *int_buf);
                         (*int_buf)*=-1;    // inverting sign to get the actual fd
+                        if((usr_close_all(server_cache, int_buf))==ERR)
+                        {LOG_ERR(errno, "MANAGER: error closing client files"); goto cleanup_x;}
+                        LOG_DEBUG("MANAGER: client %d just disconnected!\n", *int_buf);
                         FD_CLR(*int_buf, &curr_set);     // removing the fd from the curr fd set
                         close(*int_buf);     // closing communication
                     }
@@ -193,11 +206,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if((temperr=pthread_join(cleaner_thread, NULL))==ERR) {     // joining cleaner thread
-        LOG_ERR(temperr, "manager: joining cleaner");
-        goto cleanup_x;
-    }
-
     if((temperr=pthread_join(logger_thread, NULL))==ERR) {      // joining logger thread
         LOG_ERR(temperr, "manager: joining logger");
         goto cleanup_x;
@@ -207,11 +215,21 @@ int main(int argc, char* argv[]) {
     close(fd_pipe_write);   // closing write pipe
     close(fd_sk);       // closing the connection to clients
 
+    // deallocating open files list entries
+    for(i=0; i<SOMAXCONN; i++) {
+        if((temperr=ofl_destroy(serv_open_files[i]))==ERR) {
+            LOG_ERR(errno, "manager: freeing open lists entries");
+            goto cleanup_x;
+        }
+    }
+
     if(server_cache) free(server_cache);
     if(sock_addr) free(sock_addr);
     if(worker_threads_arr) free(worker_threads_arr);
     if(int_buf) free(int_buf);
     if(requests_queue) fifo_dealloc_full(requests_queue);
+    if(log_queue) fifo_dealloc_full(log_queue);
+    if(serv_open_files) free(serv_open_files);  // TODO deallocare elementi singoli
     exit(EXIT_SUCCESS);         // Successful termination
 
 // #################### CLEANUP SECTION ####################
@@ -219,7 +237,10 @@ cleanup_x:
     if(server_cache) free(server_cache);
     if(sock_addr) free(sock_addr);
     if(worker_threads_arr) free(worker_threads_arr);
+    if(int_buf) free(int_buf);
     if(requests_queue) fifo_dealloc_full(requests_queue);
+    if(log_queue) fifo_dealloc_full(log_queue);
+    if(serv_open_files) free(serv_open_files);
     exit(EXIT_FAILURE);         // Erroneus termination
 }
 

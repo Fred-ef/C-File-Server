@@ -24,9 +24,9 @@ size_t server_file_size;      // indicates the capacity of the server in terms o
 
 unsigned long thread_pool_cap;      // indicates the maximum number of worker-threads the server can manage at the same time
 char* sock_addr;       // will hold the server's main socket address
-conc_queue* requests_queue;        // the queue worker-threads will use to dispatch client's requests TODO cambiare tipo
+conc_queue* requests_queue;        // the queue worker-threads will use to dispatch client's requests
+conc_queue* log_queue;          // the queue used to pass log-messages to the logger thread
 pthread_t* worker_threads_arr;      // array of worker threads
-pthread_t cleaner_thread;       // cleaner thread, handling file closing and lock-unlocking, should a client crash
 pthread_t logger_thread;        // logger thread, handling statistics/information logging
 
 unsigned short fd_pipe_read;    // will hold the read descriptor for the communication pipe between manager and workers

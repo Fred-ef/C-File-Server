@@ -13,7 +13,6 @@ static int worker_file_close(int);
 // thread main
 void* worker_func(void* arg) {
 
-    int i;  // for loop index
     int temperr;    // used for error handling
     int* int_buf=NULL;   // serves as a buffer for int values
     int client_fd;     // will hold the fd of the user that sent the request
@@ -414,6 +413,8 @@ static int worker_file_readn(int client_fd) {
         LOG_DEBUG("Sent\n");    // TODO REMOVE
         if(temp) free(temp);
     }
+    
+    if(res!=SUCCESS) goto cleanup_w_readn;
 
 
     if(int_buf) free(int_buf);
