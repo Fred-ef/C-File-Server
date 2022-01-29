@@ -4,7 +4,7 @@ sc_cache* server_cache=NULL;      // the actual cache structure used by the serv
 size_t server_byte_size=0;        // indicates the capacity of the server in terms of bytes of memory
 size_t server_file_size=0;        // indicates the capacity of the server in terms of files in memory
 
-unsigned thread_pool_cap=0;     // Indicates the maximum number of worker-threads the server can manage at the same time
+unsigned long thread_pool_cap=0;     // Indicates the maximum number of worker-threads the server can manage at the same time
 char* sock_addr=NULL;       // will hold the server's main socket address     TODO FREE ALLA FINE
 pthread_t* worker_threads_arr=NULL;      // array of worker threads    TODO FREE ALLA FINE
 pthread_t cleaner_thread;       // cleaner thread, handling file closing and lock-unlocking, should a client crash

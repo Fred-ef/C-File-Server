@@ -44,8 +44,11 @@ void* worker_func(void* arg) {
         LOG_DEBUG("new int value: %d\n", *int_buf);
         if(!int_buf) {LOG_ERR(errno, "worker: preparing op code read"); exit(EXIT_FAILURE);}
 
-        if((temperr=readn(client_fd, (void*)int_buf, sizeof(int)))==ERR)     // getting the request into int_buf
-        {LOG_ERR(EPIPE, "worker: reading client operation"); exit(EXIT_FAILURE);}
+        // getting the request into int_buf
+        if((temperr=readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) {
+            LOG_ERR(EREMOTEIO, "worker: reading client operation");
+            *int_buf=0; // disconnecting the client as a result of the error
+        }
 
         op=*int_buf;    // reading the operation code
         LOG_DEBUG("Serving request type %d of client %d\n", *int_buf, client_fd);   // TODO remove
@@ -222,7 +225,8 @@ static int worker_file_open(int client_fd) {
             res=ERR; goto return_expelled_files;
         }
     }
-    LOG_DEBUG("FILE CREATED, OPENED & LOCKED!\n");
+    LOG_DEBUG("Hey\n\n");   // TODO REMOVE
+    if(new_file) LOG_DEBUG("FILE %s CREATED, OPENED & LOCKED!\n", new_file->name);
 
     if(flags==(O_CREATE|O_LOCK))new_file->f_write=1;    // enabling the writeFile operation
     *int_buf=SUCCESS;   // tell the client the operation succeeded
@@ -248,9 +252,10 @@ static int worker_file_open(int client_fd) {
         file* temp=subst_files[i];
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
-        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
+        if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
         if((writen(client_fd, (void*)&(temp->file_size), sizeof(size_t)))==ERR) res=ERR;
-        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
+        if(temp->file_size)
+            if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);
         if(temp->name) free(temp->name);
@@ -315,6 +320,10 @@ static int worker_file_read(int client_fd) {
         goto cleanup_w_read;
     }
 
+    // if the op succeeded, return a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
+
     // communicating the size of the file to read
     if((writen(client_fd, (void*)&bytes_read, sizeof(size_t)))==ERR) goto cleanup_w_read;
 
@@ -339,64 +348,82 @@ cleanup_w_read:
 
 static int worker_file_readn(int client_fd) {
     int temperr;
+    int res=SUCCESS;    // temporary result of the operation
+    unsigned i;
     int* int_buf=(int*)malloc(sizeof(int));
     if(!int_buf) return ERR;    // errno already set by the call
-    char* pathname=NULL;     // will hold the pathname of the file to read
-    int path_len;   // length of the pathname
+    int files_to_return=0;
+    file** returned_files=NULL;     // will hold all the files to send to the client
+    unsigned returned_files_num=0;  // will hold the number of files to send to the client
 
-    byte* data_read=NULL;   // will contain the returned file
-    int* bytes_read=NULL;  // will contain the size of the returned file
 
     *int_buf=SUCCESS;   // the request has been accepted
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_readn;
 
-    // reading path string length
-    if((readn(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
-    path_len=*int_buf+1;  // getting the pathname length
+    // reading the number of files to return
+    if((readn(client_fd, (void*)&files_to_return, sizeof(int)))==ERR) goto cleanup_w_readn;
     *int_buf=SUCCESS;   // step OK
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_readn;
 
-    pathname=(char*)calloc(path_len, sizeof(char)); // allocating mem for the path string
-    if(!pathname) return ERR;
-    memset((void*)pathname, '\0', sizeof(char)*path_len);   // setting string to 0
+    // if N was zero, return every file present
+    if(!files_to_return) files_to_return=(int)(server_cache->max_file_number);
+    LOG_DEBUG("###\nFiles to return: %d\n###\n", files_to_return);
 
-    // reading the pathname
-    if((readn(client_fd, (void*)pathname, path_len-1))==ERR) goto cleanup_w_read;
-    if(!pathname) goto cleanup_w_read;
-    *int_buf=SUCCESS;   // step OK
-    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_read;
-
-    // getting the file from the cache
-    bytes_read=(int*)malloc(sizeof(int)); // allocating mem for the file size
-    if(!bytes_read) return ERR;
-    (*bytes_read)=0;    // setting a default value
-    if((temperr=sc_lookup(server_cache, pathname, READ_F, &client_fd, &data_read, NULL, bytes_read, NULL))!=SUCCESS) {
+    // getting the files from the cache
+    if((temperr=sc_return_n_files(server_cache, files_to_return, &returned_files))!=SUCCESS) {
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
-        goto cleanup_w_read;
+        goto cleanup_w_readn;
     }
 
-    // communicating the size of the file to read
-    if((writen(client_fd, (void*)bytes_read, sizeof(int)))==ERR) goto cleanup_w_read;
+    // if the op succeeded, return a success message
+    *int_buf=SUCCESS;
+    if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_readn;
 
-    // sending the file (ONLY IF it is not empty)
-    if((*bytes_read))
-        if((writen(client_fd, (void*)data_read, (*bytes_read)))==ERR) goto cleanup_w_read;
-    
+    // counting how many files have been read
+    if(returned_files) {   // if the returned files array has been allocated, some files have been read
+        // getting the number of files retrieved
+        for(i=0; i<files_to_return; i++) {
+            if(returned_files[i]==NULL) break;
+        }
+        if(returned_files) LOG_DEBUG("Returned files present: %d\n", i);   // TODO REMOVE
+        returned_files_num=i;
+    }
+    LOG_DEBUG("\nWARNING: %d files have been retrieved\n\n", returned_files_num);   // TODO REMOVE
+    // telling the client how many files to expect
+    if((writen(client_fd, (void*)&returned_files_num, sizeof(unsigned)))==ERR) res=ERR;
+
+    // sending the retrieved files back to the client
+    for(i=0; i<returned_files_num; i++) {  // if there are no subst files, the cycle is skipped
+        LOG_DEBUG("Breakpoint\n");    // TODO REMOVE
+        file* temp=returned_files[i];
+        size_t temp_path_len=strlen(temp->name);
+        if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
+        if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
+        if((writen(client_fd, (void*)&(temp->file_size), sizeof(size_t)))==ERR) res=ERR;
+        if(temp->file_size)
+            if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
+        // deallocating file from memory
+        if(temp->data) free(temp->data);
+        if(temp->name) free(temp->name);
+        if(temp->open_list) {
+            temperr=ll_dealloc_full(temp->open_list);
+            if(temperr==ERR) return ERR;    // fatal error
+        }
+        LOG_DEBUG("Sent\n");    // TODO REMOVE
+        if(temp) free(temp);
+    }
+
 
     if(int_buf) free(int_buf);
-    if(pathname) free(pathname);
-    if(data_read) free(data_read);
-    if(bytes_read) free(bytes_read);
+    if(returned_files) free(returned_files);
     return SUCCESS;
 
 // ERROR CLEANUP
-cleanup_w_read:
+cleanup_w_readn:
     if(int_buf) free(int_buf);
-    if(pathname) free(pathname);
-    if(data_read) free(data_read);
-    if(bytes_read) free(bytes_read);
+    if(returned_files) free(returned_files);
     return -2;   // client-side error, server can keep working
 }
 
@@ -476,9 +503,10 @@ static int worker_file_write(int client_fd) {
         file* temp=subst_files[i];
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
-        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
+        if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
         if((writen(client_fd, (void*)&(temp->file_size), sizeof(size_t)))==ERR) res=ERR;
-        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
+        if(temp->file_size)
+            if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);
         if(temp->name) free(temp->name);
@@ -585,9 +613,10 @@ static int worker_file_write_app(int client_fd) {
         file* temp=subst_files[i];
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
-        if((writen(client_fd, (void*)(temp->data), temp_path_len))==ERR) res=ERR;
+        if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
         if((writen(client_fd, (void*)&(temp->file_size), sizeof(size_t)))==ERR) res=ERR;
-        if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
+        if(temp->file_size)
+            if((writen(client_fd, (void*)temp->data, (temp->file_size)))==ERR) res=ERR;
         // deallocating file from memory
         if(temp->data) free(temp->data);
         if(temp->name) free(temp->name);

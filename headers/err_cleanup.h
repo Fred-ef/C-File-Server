@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
+#include <limits.h>
 
 
 #define ERR (-1)     // Definition of the error value

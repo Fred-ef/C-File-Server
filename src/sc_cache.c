@@ -8,9 +8,9 @@ static int lock_file(file* file, const int* usr_id);
 static int unlock_file(file* file, const int* usr_id);
 static int remove_file(file* file, const int* usr_id);
 static int close_file(file* file, const int* usr_id);
-static int write_file(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id);
-static int write_append(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id);
-static int is_duplicate(file* file1, file* file2);
+static int write_file(file* file, const byte* data_written, const size_t* bytes_used, const int* usr_id);
+static int write_append(file* file, const byte* data_written, const size_t* bytes_used, const int* usr_id);
+static int is_duplicate(const file* file1, const file* file2);
 static int int_ptr_cmp(const void* x, const void* y);
 
 // TODO -   controllare che si liberi la cache
@@ -19,7 +19,7 @@ static int int_ptr_cmp(const void* x, const void* y);
 // TODO -   ridurre numero files/bytes occupati dopo remove
 
 
-sc_cache* sc_cache_create(int max_file_number, int max_byte_size) {
+sc_cache* sc_cache_create(const int max_file_number, const int max_byte_size) {
     if(!max_file_number || !max_byte_size)
         {LOG_ERR(EINVAL, "create: cache cannot have size=0"); goto cleanup_create;}
     
@@ -51,7 +51,7 @@ cleanup_create:
 }
 
 
-int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
+int sc_cache_insert(sc_cache* cache, const file* new_file, file*** replaced_files) {
     if(!cache || !new_file || !replaced_files) {LOG_ERR(EINVAL, "insert: cache_push args cannot be NULL"); return ERR;}
     if(!(cache->ht)) {LOG_ERR(EINVAL, "insert: cache's hashtable not initialized"); return ERR;}
 
@@ -70,7 +70,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
     // if there isn't enough space, call the replacement algorithm
     else if(((cache->curr_file_number + 1) > cache->max_file_number)
     || ((cache->curr_byte_size + new_file->file_size) > cache->max_byte_size)) {
-        LOG_DEBUG("Num attuale files: %d\nNum previsto files: %d\n", cache->curr_file_number, cache->curr_file_number+1);   // TODO REMOVE
+        LOG_DEBUG("Num attuale files: %lu\nNum previsto files: %lu\n", cache->curr_file_number, cache->curr_file_number+1);   // TODO REMOVE
 
         LOG_DEBUG("\nOUT\nOF\nMEMORY\n");
         
@@ -106,7 +106,7 @@ int sc_cache_insert(sc_cache* cache, file* new_file, file*** replaced_files) {
             ((ht->table)[idx]).r_used=nth_chance-1;    // setting the used-bit
             res=FOUND;      // exiting the while-loop
 
-            LOG_DEBUG("PUSHED CORRECTLY\n\n#FILE: %d\t#BYTES: %d\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
+            LOG_DEBUG("PUSHED CORRECTLY\n\n#FILE: %lu\t#BYTES: %lu\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
         }
 
         // if the element is not free and it is a duplicate, return an error
@@ -146,7 +146,7 @@ cleanup_insert:
 }
 
 
-int sc_algorithm(sc_cache* cache, size_t size_var, file*** replaced_files, bool is_insert, const char* filename) {
+int sc_algorithm(sc_cache* cache, const size_t size_var, file*** replaced_files, const bool is_insert, const char* filename) {
     if(!cache) {LOG_ERR(EINVAL, "replace: cache not initialized"); return ERR;}
     if(!replaced_files) {LOG_ERR(EINVAL, "expelled files' array not initialized"); return EINVAL;}
 
@@ -213,7 +213,8 @@ int sc_algorithm(sc_cache* cache, size_t size_var, file*** replaced_files, bool 
 }
 
 
-int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, byte** data_read, byte* data_written, size_t* bytes_used, file*** replaced_files) {
+// lookup procedure: wraps every possible operation but "insert" and "readNFiles"
+int sc_lookup(sc_cache* cache, const char* file_name, const op_code op, const int* usr_id, byte** data_read, const byte* data_written, size_t* bytes_used, file*** replaced_files) {
     // ########## CONTROL SECTION ##########
     if(!cache) {LOG_ERR(EINVAL, "lookup: cache is uninitialized"); return ERR;}
     if(!file_name) {LOG_ERR(EINVAL, "lookup: invalid file name specified"); return ERR;}
@@ -239,7 +240,7 @@ int sc_lookup(sc_cache* cache, char* file_name, op_code op, const int* usr_id, b
         // checking if there's enough space in the cache to memorize the file
         temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
         if(temperr) {LOG_ERR(temperr, "lookup-write: locking cache's mem-mutex"); return ERR;}
-        LOG_DEBUG("Current space: %d\npredicted space: %d\ntotal space: %d\n", cache->curr_byte_size, (cache->curr_byte_size+(*bytes_used)), cache->max_byte_size);
+        LOG_DEBUG("Current space: %lu\npredicted space: %lu\ntotal space: %lu\n", cache->curr_byte_size, (cache->curr_byte_size+(*bytes_used)), cache->max_byte_size);
 
         // if the file is too large for the cache, return error
         if((*bytes_used) > cache->max_byte_size) {LOG_ERR(EFBIG, "file is too large"); res=EFBIG;}
@@ -361,8 +362,54 @@ cleanup_lookup:
 }
 
 
+// returns the first N files (or all files if less than N) from the cache
+int sc_return_n_files(sc_cache* cache, const int N, file*** returned_files) {
+    int temperr;
+    unsigned i, j;     // for loop indexes
+    unsigned file_count=0;  // will hold count of the returned files
+    conc_hash_table* ht=cache->ht;  // shortcut to the hashtable
+    file* temp_file=NULL;   // file to copy
+
+    // allocating the array of returned files
+    (*returned_files)=(file**)calloc(N, sizeof(file*));
+    if(!(*returned_files)) {LOG_ERR(errno, "return_n_files: allocating space for returned files"); return ERR;}
+    for(i=0; i<N; i++) { (*returned_files)[i]=NULL;}   // setting all pointers to NULL
+
+    for(i=0; (i<(cache->max_file_number*2))&&(file_count<N); i++) {
+        // locking the mutex of the current entry
+        temperr=pthread_mutex_lock(&(((ht->table)[i]).entry_mtx));
+        if(temperr) {LOG_ERR(temperr, "return_n_files: locking hashtable's entry"); return ERR;}
+
+        if((ht->table)[i].entry && (ht->table)[i].entry!=ht->mark) {
+            LOG_DEBUG("Total files: %d;\tFiles read: %d\n", N, file_count); // TODO REMOVE
+            temp_file=(file*)(ht->table)[i].entry;  // shorcut to the i-th file
+
+            // allocating a file to hold the copy of the temp
+            (*returned_files)[file_count]=file_create(temp_file->name);
+            if(!(*returned_files)[file_count]) {LOG_ERR(errno, "return_n_files: allocating file"); return ERR;}
+            
+            if(temp_file->file_size) {  // if the file wasn't null, copies its data onto the new one
+                ((*returned_files)[file_count])->file_size=temp_file->file_size;    // setting file dimension
+                // allocating space for the file data
+                ((*returned_files)[file_count])->data=(byte*)calloc(temp_file->file_size, sizeof(byte));
+                if(!((file*)((*returned_files)[file_count])->data)) {LOG_ERR(errno, "return_n_files: allocating file data"); return ERR;}
+                // copying data from the original file to the copy
+                for(j=0; j<(temp_file->file_size); j++) ((*returned_files)[file_count])->data[j]=(temp_file->data)[j];
+            }
+            file_count++;   // incrementing the file count
+        }
+
+        // unlocking current entry
+        temperr=pthread_mutex_unlock(&(((ht->table)[i]).entry_mtx));
+        if(temperr) {LOG_ERR(temperr, "return_n_files: unlocking hashtable's entry"); return ERR;}
+    }
+
+    return SUCCESS;
+}
+
+
 // creates a new file with @pathname as its name and returns it
-file* file_create(char* pathname) {
+file* file_create(const char* pathname) {
     file* new_file=(file*)malloc(sizeof(file));
     new_file->data=NULL;
     new_file->f_lock=0;
@@ -491,7 +538,7 @@ static int close_file(file* file, const int* usr_id) {
 
 
 // helper function: writes the whole file if the last operation on it was create&lock
-static int write_file(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id) {
+static int write_file(file* file, const byte* data_written, const size_t* bytes_used, const int* usr_id) {
     if(!file->f_write || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
@@ -510,7 +557,7 @@ static int write_file(file* file, byte* data_written, const size_t* bytes_used, 
 
 
 // helper function: writes the data passed as arg in append mode
-static int write_append(file* file, byte* data_written, const size_t* bytes_used, const int* usr_id) {
+static int write_append(file* file, const byte* data_written, const size_t* bytes_used, const int* usr_id) {
     if(file->f_lock && (file->f_lock)!=(*usr_id)) return EPERM;    // another user has a lock on this file
 
     int i=0, j;  // for loop index
@@ -538,7 +585,7 @@ static int write_append(file* file, byte* data_written, const size_t* bytes_used
 
 
 // helper function: returns TRUE if the files' names are equal, FALSE otherwise
-static int is_duplicate(file* file1, file* file2) {
+static int is_duplicate(const file* file1, const file* file2) {
     // NULL checks already done in the insert procedure
     if(!strcmp(file1->name, file2->name)) return TRUE;
     else return FALSE;

@@ -91,8 +91,9 @@ int ll_dealloc_full(llist* list) {
             pthread_mutex_destroy(&(aux2->node_mtx));
             free(aux2);
         }
+        free(list);
     }
 
-    free(list);
+    
     return SUCCESS;
 }

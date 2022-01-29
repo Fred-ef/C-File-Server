@@ -34,7 +34,7 @@ static int append_files(char*);     // writes the file passed as argument in app
 
 int main(int argc, char* argv[]) {
 
-    if(argc==1) { printf("args required\n"); return ERR; }      // immidiately terminates if no param is passed in input
+    if(argc==1) { LOG_ERR(EINVAL, "args required\n"); return ERR; }      // immidiately terminates if no param is passed in input
 
     unsigned short i;       // serves as an index in for-loops
     short temperr;      // used for error codes
@@ -362,7 +362,6 @@ static int send_files(char* arg) {
                 LOG_ERR(errno, "-w - could not create all files");
                 return ERR;
             }
-            LOG_ERR(errno, "-w - error code");  // TODO REMOVE
         }
         token=strtok_r(NULL, ",", &saveptr);
     }
@@ -412,8 +411,8 @@ static int read_files(char* arg) {
     int temperr;
     int fd;
     int i;
-    char* token;
-    char* saveptr;
+    char* token=NULL;
+    char* saveptr=NULL;
     char* pathname=NULL;
     void* buffer=NULL;
     size_t* size=NULL;
@@ -461,13 +460,10 @@ static int read_files(char* arg) {
                 pathname[i]='\0';   // resetting save_dir's path
             }
         }
-        printf("Reading file: %s\n", token);
         if(buffer) {free(buffer); buffer=NULL;}
         token=strtok_r(NULL, ",", &saveptr);
     }
 
-    if(token) {free(token); token=NULL;}
-    if(saveptr) {free(saveptr); saveptr=NULL;}
     if(pathname) {free(pathname); pathname=NULL;}
     if(buffer) {free(buffer); buffer=NULL;}
     if(size) {free(size); size=NULL;}
@@ -601,7 +597,7 @@ static int visit_folder(char* starting_dir, int* rem_files) {
 
 
     // allocating the string that will be used to save files' paths
-    curr_elem_name=(char*)malloc(UNIX_PATH_MAX*sizeof(char));
+    curr_elem_name=(char*)calloc(UNIX_PATH_MAX, sizeof(char));
     if(!curr_elem_name) {LOG_ERR(errno, "-w - memerr"); return ERR;}
     memset((void*)curr_elem_name, '\0', UNIX_PATH_MAX*sizeof(char));
 
