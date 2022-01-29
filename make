@@ -4,4 +4,4 @@ gcc -Wall -pedantic serv_manager.c serv_worker.c conc_fifo.c conc_elem.c conc_ha
 
 ./server.out ../config.txt
 
-gcc -Wall -pedantic client.c client_API.c  part_rw_sol.c parser.c err_cleanup.c util.c conc_fifo.c conc_elem.c -I ../headers -pthread -o client.out
+gcc -Wall -pedantic client.c client_API.c  part_rw_sol.c parser.c err_cleanup.c util.c linkedlist.c conc_elem.c -I ../headers -pthread -o client.out

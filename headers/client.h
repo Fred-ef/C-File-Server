@@ -11,7 +11,7 @@
 #include "err_cleanup.h"
 #include "definitions.h"
 #include "parser.h"
-#include "conc_fifo.h"
+#include "linkedlist.h"
 
 char f_flag;      // used in order not to duplicate the -f command
 char p_flag;      // used in order not to duplicate the -p command
@@ -26,7 +26,7 @@ byte sleep_time;      // used to set a sleep between consecutive requests
 byte conn_timeout;    // used to set a time-out to connection attempts
 unsigned conn_delay;      // used to set a time margin between consecutive connection attempts
 
-conc_queue* open_files_queue;
+llist* open_files_list;
 
 
 // definition of the output-printing function (only prints if p is flagged)

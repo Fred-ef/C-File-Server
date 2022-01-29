@@ -10,7 +10,7 @@ byte sleep_time=0;      // used to set a sleep between consecutive requests
 byte conn_timeout=10;    // used to set a time-out to connection attempts
 unsigned conn_delay=500;      // used to set a time margin between consecutive connection attempts
 
-conc_queue* open_files_queue=NULL;      // used to keep track of the files opened by the client
+llist* open_files_list=NULL;      // used to keep track of the files opened by the client
 
 
 static int parse_command(char**);       // parses the command line, executing requests one by one
@@ -29,7 +29,8 @@ static int lock_files(char*);       // specifies the files to lock on the file-s
 static int unlock_files(char*);     // specifies the files to unlock on the file-server
 static int remove_files(char*);     // attempts to remove the specified files from the file-server
 static int append_files(char*);     // writes the file passed as argument in append
-static int close_files(conc_queue*);    // closes all files saved in the queue
+static int close_files(llist*);    // closes all files saved in the queue
+static int str_ptr_cmp(const void*, const void*);   // used to compare void pointers as strings
 
 
 
@@ -39,8 +40,8 @@ int main(int argc, char* argv[]) {
 
     short temperr;      // used for error codes
 
-    open_files_queue=conc_fifo_create(NULL);    // creating the queue to keep track of the open files
-    if(!open_files_queue) {LOG_ERR(errno, "creating open files queue"); return ERR;}
+    open_files_list=ll_create();    // creating the list to keep track of the open files
+    if(!open_files_list) {LOG_ERR(errno, "creating open files list"); return ERR;}
 
     if((temperr=parse_command(argv))==ERR) {
         if(save_dir) free(save_dir);
@@ -48,8 +49,8 @@ int main(int argc, char* argv[]) {
         return ERR;
     }
 
-    if((temperr=fifo_dealloc_full(open_files_queue))==ERR)
-    {LOG_ERR(errno, "destroying open files queue"); return ERR;}
+    if((temperr=ll_dealloc_full(open_files_list))==ERR)
+    {LOG_ERR(errno, "destroying open files list"); return ERR;}
 
 
     if(save_dir) free(save_dir);
@@ -231,7 +232,7 @@ static int parse_command(char** commands) {
         {LOG_ERR(errno, "sleeping between operations"); return ERR;}
     }
 
-    if((temperr=close_files(open_files_queue))==ERR) return ERR;
+    if((temperr=close_files(open_files_list))==ERR) return ERR;
     closeConnection(sockname);
     return SUCCESS;
 
@@ -343,7 +344,7 @@ static int send_files(char* arg) {
             || (temperr==ERR && errno==0)) {    // non-fatal error, can continue
             // after successful creation, writes the file
             if((temperr=writeFile(token, miss_dir))==ERR) {
-                LOG_ERR(errno, "-w - could not write all files");
+                LOG_ERR(errno, "-W - could not write all files");
                 return ERR;
             }
         }
@@ -352,25 +353,25 @@ static int send_files(char* arg) {
             // if it did exist, just open it and write in append
             if(errno==EEXIST) {
                 if((temperr=openFile(token, 0))==ERR) {    // opening the file
-                    LOG_ERR(errno, "-w - could not open file");
+                    LOG_ERR(errno, "-W - could not open file");
                     return ERR;
                 }
                 if((temperr=append_files(token))==ERR) {
-                    LOG_ERR(errno, "-w - could not write in append");
+                    LOG_ERR(errno, "-W - could not write in append");
                     return ERR;
                 }
             }
             // fatal error
             else {
-                LOG_ERR(errno, "-w - could not create all files");
+                LOG_ERR(errno, "-W - could not create all files");
                 return ERR;
             }
         }
         // pushing the opened file's name into the open file queue
         char* filename=strdup(token);
-        if(!filename) {LOG_ERR(errno, "-w - could not register file opening"); return ERR;}
-        if((temperr=conc_fifo_push(open_files_queue, (void*)filename))==ERR)
-        {LOG_ERR(errno, "-W: pushing filename into open files queue"); return ERR;}
+        if(!filename) {LOG_ERR(errno, "-W - could not register file opening"); return ERR;}
+        if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+        {LOG_ERR(errno, "-W: pushing filename into open files list"); return ERR;}
 
         struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
         if(!file_stat) return ERR;
@@ -456,7 +457,18 @@ static int read_files(char* arg) {
 
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
-        if((temperr=readFile(token, &buffer, &size))==ERR) {
+        if((temperr=openFile(token, 0))==ERR) {    // opening the file
+            LOG_ERR(errno, "-r - could not open file");
+            return ERR;
+        }
+
+        // pushing the opened file's name into the open file queue
+        char* filename=strdup(token);
+        if(!filename) {LOG_ERR(errno, "-r - could not register file opening"); return ERR;}
+        if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+        {LOG_ERR(errno, "-r: pushing filename into open files list"); return ERR;}
+
+        if((temperr=readFile(token, &buffer, &size))==ERR) {    // reading the file
             LOG_ERR(errno, "-r - error while reading files");
             goto cleanup_2;
         }
@@ -551,7 +563,18 @@ static int lock_files(char* arg) {
     }
 
     while(token) {
-        if((temperr=lockFile(token))==ERR) {
+        if((temperr=openFile(token, 0))==ERR) {    // opening the file
+            LOG_ERR(errno, "-l - could not open file");
+            return ERR;
+        }
+
+        // pushing the opened file's name into the open file queue
+        char* filename=strdup(token);
+        if(!filename) {LOG_ERR(errno, "-l - could not register file opening"); return ERR;}
+        if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+        {LOG_ERR(errno, "-l: pushing filename into open files list"); return ERR;}
+
+        if((temperr=lockFile(token))==ERR) {    // locking the file
             LOG_ERR(errno, "-l - error while locking files");
             return ERR;
         }
@@ -687,13 +710,15 @@ static int visit_folder(char* starting_dir, int* rem_files) {
                     goto cleanup_vis_fold;
                 }
             }
-            // pushing the opened file's name into the open file queue
-            if((temperr=conc_fifo_push(open_files_queue, (void*)curr_elem_name))==ERR)
-            {LOG_ERR(errno, "-w: pushing filename into open files queue"); return ERR;}
+            // pushing the opened file's name into the open file list
+            char* filename=strdup(curr_elem_name);
+            if(!filename) {LOG_ERR(errno, "-w - could not register file opening"); return ERR;}
+            if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+            {LOG_ERR(errno, "-w: pushing filename into open files list"); return ERR;}
 
             struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
             if(!file_stat) return ERR;
-            if((temperr=stat(curr_elem_name, file_stat))==ERR)
+            if((temperr=stat(filename, file_stat))==ERR)
             {LOG_ERR(errno, "-w getting file info"); return ERR;}
             LOG_OUTPUT("-w: successfully wrote file  \"%s\" to the server (%lubytes written)\n",curr_elem_name, file_stat->st_size);
             free(file_stat);
@@ -753,19 +778,31 @@ static int append_files(char* arg) {
 
 
 // closes every file whose name is stored in the queue
-static int close_files(conc_queue* open_files) {
+static int close_files(llist* open_files) {
+    if(!open_files) {LOG_ERR(EINVAL, "closing files: open files list uninitialized"); return ERR;}
     int temperr;
     char* temp_file;
 
-    // if there are open files' filenames, closes them
-    while((temp_file=(char*)conc_fifo_pop(open_files))) {
-        if((temperr=closeFile(temp_file))==ERR) {
-            LOG_ERR(errno, "closing file");
-            return ERR;
+    // if the list is empty, there is nothing to close
+    if(!(ll_isEmpty(open_files))) {
+        conc_node aux1=open_files->head;
+        while ((aux1!=NULL)) {
+            temp_file=(char*)(aux1->data);
+            if((temperr=closeFile(temp_file))==ERR && errno!=ENOENT) {
+                LOG_ERR(errno, "closing all opened files");
+                return ERR;
+            }
+            aux1=aux1->next;
         }
-        if(temp_file) free(temp_file);
     }
 
 
     return SUCCESS;
+}
+
+
+// helper function: compares two void pointers as strings
+static int str_ptr_cmp(const void* s, const void* t) {
+    // warning: segfault if one of the pointers is null
+    return strcmp((char*)s, (char*)t);
 }
