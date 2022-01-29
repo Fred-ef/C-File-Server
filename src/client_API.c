@@ -7,6 +7,8 @@ bool is_connected=0;     // set to 1 when the connection with the server is esta
 char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
 char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
 
+// TODO finire nanosleep
+
 // Opens the connection to the server
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
     if(!sockname) {errno=EINVAL; return ERR;}
@@ -40,7 +42,8 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
     while((errtemp=connect(fd_sock, (struct sockaddr*)&sa, sizeof(sa)))==ERR && (timeout=compare_current_time(&abstime)) != -1) {     // connecting to the server socket
         if(errno==ENOENT) {
-            if((errtemp=sleep_ms(RECONNECT_TIMER))==ERR) return ERR;
+            if((errtemp=usleep(US_TO_MS(RECONNECT_TIMER)))==ERR)
+            {LOG_ERR(errno, "sleeping in reconnect interval"); return ERR;}
         }     // wait, then try again
         else goto cleanup_connect;
     }
@@ -633,7 +636,10 @@ int lockFile(const char* pathname) {
         readn(fd_sock, (void*)int_buf, sizeof(int));    // reads the operation result value
         if((*int_buf)!=SUCCESS && (*int_buf)!=EBUSY) {errno=*int_buf; goto cleanup_lock;}       // if the operation failed, return error
 
-        if(*int_buf!=SUCCESS) {if((temperr=sleep_ms(LOCK_TIMER))==ERR) return ERR;} // sleeps before asking again for the lock
+        if(*int_buf!=SUCCESS) {
+            if((temperr=usleep(US_TO_MS(LOCK_TIMER)))==ERR)
+            {LOG_ERR(errno, "sleeping while waiting for the lock"); return ERR;}
+        } // sleeps before asking again for the lock
     } while((*int_buf)==EBUSY);
 
     if(int_buf) free(int_buf);
@@ -771,21 +777,6 @@ cleanup_rm:
 /* ######################################### HELPER FUNCTIONS ######################################### */
 /* #################################################################################################### */
 
-
-short sleep_ms(int duration) {
-    short errtemp;
-    stimespec* timer=(stimespec*)malloc(sizeof(stimespec));
-    if(!timer) {errno=ENOMEM; return ERR;}
-    timer->tv_sec=0;
-    timer->tv_nsec=(MS_TO_NS(duration));
-
-    
-    if((errtemp=nanosleep_w(timer))==ERR) {
-        return ERR;
-    }
-
-    return SUCCESS;
-}
 
 char* build_path_name(const char* dir, const char* name) {
     if(!dir || !name) return NULL;

@@ -60,7 +60,6 @@ int removeFile(const char* pathname);
 
 /* ########################## Auxiliary functions ################################## */
 
-static short sleep_ms(int);        // makes the caller sleep for 200ms
 char* build_path_name(const char*, const char*);     // build a pathname from the dir and filename given
 
 #endif // client_API_h

@@ -6,6 +6,7 @@
 #define CONFIG_PATH "./config.ini" /* Path of the config.ini file */
 #define TRUE 1     // Definition for the boolean value "true"
 #define FALSE 0     // Definition for the boolean value "false"
+#define US_TO_MS_CONV 1000      // Conversion rate of microseconds to milliseconds and viceversa
 #define MS_TO_NS_CONV 1000000     // Conversion rate of milliseconds to nanoseconds and viceversa
 #define MS_TO_S_CONV 1000     // Conversion rate of milliseconds to seconds and viceversa
 #define S_TO_NS_CONV 1000000000   // Conversion rate of seconds to nanoseconds and viceversa
@@ -13,6 +14,7 @@
 #define FILE_PATH_MAX 255       // Max length of a file/dir path
 #define MB_TO_BYTES 1000000     // conversion rate of bytes to megabytes and viceversa
 
+#define US_TO_MS(a) a*US_TO_MS_CONV
 #define MS_TO_NS(a) a*MS_TO_NS_CONV
 #define NS_TO_MS(a) a/MS_TO_NS_CONV
 #define S_TO_MS(a) a*MS_TO_S_CONV

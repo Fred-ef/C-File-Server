@@ -55,14 +55,3 @@ short compare_current_time(const stimespec* b) {
   free(current);
   return result;
 }
-
-short nanosleep_w(stimespec* a) {
-  short errtemp;
-  stimespec* rem_time=(stimespec*)malloc(sizeof(stimespec));
-  if(!rem_time) {errno=ENOMEM; return ERR;}
-
-
-  // TODO finire implementazione
-
-
-}
