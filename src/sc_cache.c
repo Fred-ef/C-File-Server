@@ -13,10 +13,8 @@ static int write_append(file* file, const byte* data_written, const size_t* byte
 static int is_duplicate(const file* file1, const file* file2);
 static int int_ptr_cmp(const void* x, const void* y);
 
-// TODO -   controllare che si liberi la cache
 // TODO -   controllare che si liberino le code di file aperti
 // TODO -   aggiungere cleanup per pulire l'intera cache dai file
-// TODO -   ridurre numero files/bytes occupati dopo remove
 
 
 sc_cache* sc_cache_create(const int max_file_number, const int max_byte_size) {
@@ -318,9 +316,21 @@ int sc_lookup(sc_cache* cache, const char* file_name, const op_code op, const in
             else if(op==UNLOCK_F) res=unlock_file(temp_file, usr_id);    // if file is locked by the user, unlocks it
             
             else if(op==RM_F) {     // if the file is locked by the user, deletes it from the cache
+                size_t file_size=temp_file->file_size;  // saving file size for later
                 res=remove_file(temp_file, usr_id);        // if file is locked by the user, deletes it
                 if(res==ERR) {LOG_ERR(errno, "lookup: removing file"); return ERR;} // a fatal error (memerr/mutexerr) has occurred
-                if(res==SUCCESS) ht->table[idx].entry=ht->mark;  // the item has been deleted, so mark it as deleted
+                if(res==SUCCESS) {
+                    ht->table[idx].entry=ht->mark;  // the item has been deleted, so mark it as deleted
+
+                    temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
+                    if(temperr) {LOG_ERR(temperr, "lookup-r: locking cache's mem-mutex"); return ERR;}
+
+                    cache->curr_file_number--;  // decreasing the file count by 1
+                    cache->curr_byte_size-=file_size;   // decreasing the total file size by the size of the deleted file
+
+                    temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
+                    if(temperr) {LOG_ERR(temperr, "lookup-r: unlocking cache's mem-mutex"); return ERR;}
+                }
             }
 
             else if(op==CLOSE_F) {  // closes the file for the user

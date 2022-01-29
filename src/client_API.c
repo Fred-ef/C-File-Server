@@ -223,18 +223,15 @@ int readFile(const char* pathname, void** buf, size_t* size) {
     writen(fd_sock, (void*)pathname, strlen(pathname));        // tells the server what file to open
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_read;}       // if the server could not get the path, abort the operation
-    LOG_DEBUG("After pathname %s\n", pathname);     // TODO REMOVE
 
     readn(fd_sock, (void*)int_buf, sizeof(int));    // reads the operation result value
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_read;}   // if the operation failed, return error
 
     // receives the size of the file to read
-    size=(size_t*)malloc(sizeof(size_t));
-    if(!size) return ERR;
     readn(fd_sock, (void*)size, sizeof(size_t));     // gets the size of the file to read
     if(*size < 0) {errno=EIO; goto cleanup_read;}
 
-    if(size==0) (*buf)=NULL;    // empty file, return null as its content
+    if(*size==0) (*buf)=NULL;    // empty file, return null as its content
     else {  // receives the file requested
         (*buf)=(void*)calloc((*size), sizeof(byte));
         if(!buf) return ERR;
@@ -249,7 +246,6 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 // CLEANUP SECTION
 cleanup_read:
     if(int_buf) free(int_buf);
-    if(size) free(size);
     if(*buf) free(*buf);
     return ERR;
 }

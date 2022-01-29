@@ -278,8 +278,10 @@ static int set_sock(char* sockname) {
         if(timer) {free(timer); timer=NULL;}
         return ERR;
     }
-
     if(timer) {free(timer); timer=NULL;}
+
+    
+    LOG_OUTPUT("-f: connected successfully\n");
     return SUCCESS;
 }
 
@@ -305,8 +307,6 @@ static int send_dir(char* arg) {
     if(token) token=strtok_r(NULL, "\n", &saveptr);
     if(token) n=atoi(token);
     if(n==0) n=__INT_MAX__;
-
-    LOG_DEBUG("Dir chosen: %s;\tNumber of files: %d\n", dir_path, n);
 
     if((temperr=visit_folder(dir_path, &n))==ERR) {
         if(dir_path) free(dir_path);
@@ -334,7 +334,6 @@ static int send_files(char* arg) {
         if((temperr=openFile(token, O_CREATE|O_LOCK))==SUCCESS
             || (temperr==ERR && errno==0)) {    // non-fatal error, can continue
             // after successful creation, writes the file
-            LOG_DEBUG("FILE %s CREATED\n", token);
             if((temperr=writeFile(token, miss_dir))==ERR) {
                 LOG_ERR(errno, "-w - could not write all files");
                 return ERR;
@@ -344,18 +343,14 @@ static int send_files(char* arg) {
         else {
             // if it did exist, just open it and write in append
             if(errno==EEXIST) {
-                LOG_DEBUG("File already existed! opening...\n");    // TODO REMOVE
                 if((temperr=openFile(token, 0))==ERR) {    // opening the file
                     LOG_ERR(errno, "-w - could not open file");
                     return ERR;
                 }
-                LOG_DEBUG("File opened; writing in append...\n");   // TODO REMOVE
                 if((temperr=append_files(token))==ERR) {
-                    LOG_DEBUG("Oh no!\n");  // TODO REMOVE
                     LOG_ERR(errno, "-w - could not write in append");
                     return ERR;
                 }
-                LOG_DEBUG("File written\n");    // TODO REMOVE
             }
             // fatal error
             else {
@@ -363,6 +358,13 @@ static int send_files(char* arg) {
                 return ERR;
             }
         }
+        struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
+        if(!file_stat) return ERR;
+        if((temperr=stat(token, file_stat))==ERR)
+        {LOG_ERR(errno, "-W getting file info"); return ERR;}
+        LOG_OUTPUT("-W: successfully wrote file  \"%s\" to the server (%lubytes written)\n",token, file_stat->st_size);
+        free(file_stat);
+
         token=strtok_r(NULL, ",", &saveptr);
     }
 
@@ -384,6 +386,8 @@ static int set_save_dir(char* dir) {
     }
     strncpy(save_dir, dir, strlen(dir)+1);
 
+
+    LOG_OUTPUT("Save folder for returned files: %s\n", dir);
     return SUCCESS;
 }
 
@@ -402,6 +406,8 @@ static int set_miss_dir(char* dir) {
     }
     strncpy(miss_dir, dir, strlen(dir)+1);
 
+
+    LOG_OUTPUT("Save folder for expelled files: %s\n", dir);
     return SUCCESS;
 }
 
@@ -415,13 +421,14 @@ static int read_files(char* arg) {
     char* saveptr=NULL;
     char* pathname=NULL;
     void* buffer=NULL;
-    size_t* size=NULL;
+    size_t size=0;
 
     // if file storing is enabled, copy the save_dir's path in the "pathname" var
     if(save_dir) {
         // copying the save directory into a string for later elaboration
         pathname=(char*)malloc(UNIX_PATH_MAX*sizeof(char));
         if(!pathname) { LOG_ERR(errno, "-r - memerror"); return ERR; }
+        memset(pathname, '\0', UNIX_PATH_MAX);
         strcpy(pathname, save_dir);
          // saving save_dir's last char position
          for(i=0; i<UNIX_PATH_MAX; i++) if(pathname[i]=='\0') break;
@@ -435,21 +442,22 @@ static int read_files(char* arg) {
 
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
-        if((temperr=readFile(token, &buffer, size))==ERR) {
+        if((temperr=readFile(token, &buffer, &size))==ERR) {
             LOG_ERR(errno, "-r - error while writing files");
             goto cleanup_2;
         }
+        LOG_OUTPUT("-r: successfully read file \"%s\" from the server (%lubytes read\n", (char*)buffer, size);
         // if a save folder has been specified, save the file obtained there; else, discard it
         if(save_dir) {
             // if the file has been successfully retrieved, write it in the specified folder
             // else, try to retrieve next file
             if(buffer) {
-                strncpy(pathname, token, UNIX_PATH_MAX-strlen(pathname)-1);    // composing the full path to save the file
-                if((fd=open(token, O_CREAT, O_RDWR))==ERR) {    // creating file
+                strncat(pathname, basename(token), UNIX_PATH_MAX-strlen(pathname)-1); 
+                if((fd=open(pathname, O_WRONLY | O_APPEND | O_CREAT, 0777))==ERR) {    // creating file
                     LOG_ERR(errno, "-r - creating file on disk");
                     goto cleanup_1;
                 }
-                if((temperr=write(fd, buffer, (*size)))==ERR) {    // writing file
+                if((temperr=write(fd, buffer, size))==ERR) {    // writing file
                     LOG_ERR(errno, "-r - writing file on disk");
                     goto cleanup_1;
                 }
@@ -466,12 +474,10 @@ static int read_files(char* arg) {
 
     if(pathname) {free(pathname); pathname=NULL;}
     if(buffer) {free(buffer); buffer=NULL;}
-    if(size) {free(size); size=NULL;}
     return SUCCESS;
 
 // CLEANUP
 cleanup_1:
-    if(size) {free(size); size=NULL;}
     if(buffer) {free(buffer); buffer=NULL;}
 cleanup_2:
     if(pathname) {free(pathname); pathname=NULL;}
@@ -502,16 +508,19 @@ static int read_n_files(char* arg) {
         return ERR;
     }
 
+
+    LOG_OUTPUT("-R: successfully read %d files from the server\n", result);
     return result;
 }
 
 
 // -t | sets the time the client has to wait between two consecutive requests
 static int set_time(char* arg) {
-    LOG_DEBUG("Setting delay_time to %s\n", arg);
     if(!arg) return SUCCESS;
     sleep_time=atoi(arg);
 
+
+    LOG_OUTPUT("Timer set: %dms\n", sleep_time);
     return SUCCESS;
 }
 
@@ -532,6 +541,7 @@ static int lock_files(char* arg) {
             LOG_ERR(errno, "-l - error while locking files");
             return ERR;
         }
+        LOG_OUTPUT("-l: successfully locked file \"%s\"\n", token);
         token=strtok_r(NULL, ",", &saveptr);
     }
 
@@ -555,6 +565,7 @@ static int unlock_files(char* arg) {
             LOG_ERR(errno, "-u - error while unlocking files");
             return ERR;
         }
+        LOG_OUTPUT("-u: successfully unlocked file \"%s\"\n", token);
         token=strtok_r(NULL, ",", &saveptr);
     }
 
@@ -578,7 +589,7 @@ static int remove_files(char* arg) {
             LOG_ERR(errno, "-c - error while removing files");
             return ERR;
         }
-        LOG_DEBUG("Removing file: %s\n", token);
+        LOG_OUTPUT("-c: successfully removed file \"%s\" from the server\n", token);
         token=strtok_r(NULL, ",", &saveptr);
     }
 
@@ -622,7 +633,6 @@ static int visit_folder(char* starting_dir, int* rem_files) {
 
         // getting the absolute path for the current file scan
         strncat(curr_elem_name, curr_elem_p->d_name, (UNIX_PATH_MAX-strlen(curr_elem_name)-strlen(curr_elem_p->d_name)));
-        LOG_DEBUG("SCANNING ELEMENT %s\n", curr_elem_name);
 
         //checking file's type (dir or regular)
 
@@ -639,7 +649,6 @@ static int visit_folder(char* starting_dir, int* rem_files) {
             if((temperr=openFile(curr_elem_name, O_CREATE|O_LOCK))==SUCCESS
                 || (temperr==ERR && errno==0)) {    // non-fatal error, can continue
                 // after successful creation, writes the file
-                LOG_DEBUG("FILE %s CREATED\n", curr_elem_name);
                 if((temperr=writeFile(curr_elem_name, miss_dir))==ERR) {
                     LOG_ERR(errno, "-w - could not write all files");
                     goto cleanup_vis_fold;
@@ -649,26 +658,28 @@ static int visit_folder(char* starting_dir, int* rem_files) {
             else {
                 // if it did exist, just open it and write in append
                 if(errno==EEXIST) {
-                    LOG_DEBUG("File already existed! opening...\n");    // TODO REMOVE
                     if((temperr=openFile(curr_elem_name, 0))==ERR) {    // opening the file
                         LOG_ERR(errno, "-w - could not open file");
                         goto cleanup_vis_fold;
                     }
-                    LOG_DEBUG("File opened; writing in append...\n");   // TODO REMOVE
                     if((temperr=append_files(curr_elem_name))==ERR) {
-                        LOG_DEBUG("Oh no!\n");  // TODO REMOVE
                         LOG_ERR(errno, "-w - could not write in append");
                         goto cleanup_vis_fold;
                     }
-                    LOG_DEBUG("File written\n");    // TODO REMOVE
                 }
                 // fatal error
                 else {
                     LOG_ERR(errno, "-w - could not create all files");
                     goto cleanup_vis_fold;
                 }
-                LOG_ERR(errno, "-w - error code");  // TODO REMOVE
             }
+            struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
+            if(!file_stat) return ERR;
+            if((temperr=stat(curr_elem_name, file_stat))==ERR)
+            {LOG_ERR(errno, "-w getting file info"); return ERR;}
+            LOG_OUTPUT("-w: successfully wrote file  \"%s\" to the server (%lubytes written)\n",curr_elem_name, file_stat->st_size);
+            free(file_stat);
+            
             (*rem_files)--;    // decrement remaining files counter by 1
         }
         curr_elem_name[string_ter]='\0';      // re-setting null-terminator position to current dir path
@@ -700,25 +711,24 @@ cleanup_vis_fold:
 static int append_files(char* arg) {
     int temperr;
     int fd;
-    struct stat* fileStat=NULL;     // will hold file information
+    struct stat* file_stat=NULL;     // will hold file information
     size_t file_size;     // will hold file name
     byte* buf=NULL;      // will hold file data
 
     if((fd=open(arg, O_RDONLY))==ERR) {errno=EINVAL; return ERR;}
-    fileStat=(struct stat*)malloc(sizeof(struct stat));     // getting file struct
-    if(!fileStat) return ERR;
-    if((fstat(fd, fileStat))==ERR) return ERR;  // getting file info
-    file_size=(size_t)fileStat->st_size;  // getting file size
+    file_stat=(struct stat*)malloc(sizeof(struct stat));     // getting file struct
+    if(!file_stat) return ERR;
+    if((fstat(fd, file_stat))==ERR) return ERR;  // getting file info
+    file_size=(size_t)file_stat->st_size;  // getting file size
     buf=(byte*)calloc(file_size, sizeof(byte));
     if(!buf) return ERR;
     if((read(fd, buf, file_size))==ERR) return ERR;     // getting file's raw data into the buffer
     if((close(fd))==ERR) return ERR;
 
     if((temperr=appendToFile(arg, buf, file_size, miss_dir))==ERR) return ERR;
-    LOG_DEBUG("MARKER %d\n", errno);  // TODO REMOVE
 
 
-    if(fileStat) free(fileStat);
+    if(file_stat) free(file_stat);
     if(buf) free(buf);
     return SUCCESS;
 }
