@@ -538,10 +538,12 @@ static int close_file(file* file, const int* usr_id) {
     res=ll_search(file->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
+    if(res==TRUE) LOG_DEBUG("FOUND IT! #####\n"); // TODO REMOVE
 
     if(file->f_lock==(*usr_id)) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
     if((temperr=ll_remove(file->open_list, (void*)usr_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
     return ERR;   // fatal error, errno already set by the call
+    if(ll_isEmpty(file->open_list)) LOG_DEBUG("#####\nWorking properly\n#####\n");  // TODO REMOVE
 
     return SUCCESS;
 }
@@ -604,7 +606,15 @@ static int is_duplicate(const file* file1, const file* file2) {
 
 // helper function: compares two void pointers as integers
 static int int_ptr_cmp(const void* x, const void* y) {
+    // warning: segfault if one of the pointers is null
     if((*(int*)x)==(*(int*)y)) return 0;    // x=y
     else if((*(int*)x)>(*(int*)y)) return 1;    // x>y
     else return -1;      // x<y
+}
+
+
+// helper function: compares two void pointers as strings
+static int str_ptr_cmp(const void* s, const void* t) {
+    // warning: segfault if one of the pointers is null
+    return strcmp((char*)s, (char*)t);
 }

@@ -841,6 +841,7 @@ static int worker_file_close(int client_fd) {
     // returning a success message
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
+    LOG_DEBUG("Closed with success\n"); // TODO REMOVE
 
 
     if(int_buf) free(int_buf);

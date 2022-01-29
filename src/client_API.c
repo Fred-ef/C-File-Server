@@ -7,15 +7,13 @@ bool is_connected=0;     // set to 1 when the connection with the server is esta
 char* save_dir=NULL;    // used to specify the folder in which to save files retrieved from the file-server
 char* miss_dir=NULL;    // used to specify the folder in which to save files discarded by the file-server
 
-// TODO finire nanosleep
-
 // Opens the connection to the server
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
     if(!sockname) {errno=EINVAL; return ERR;}
     errno=0;
 
     short errtemp;      // used for error-testing in syscalls
-    short timeout;      // used for timeout expiration checking
+    short timeout=0;      // used for timeout expiration checking
 
     stimespec* timer=NULL;       // implements the 200ms try-again timer
     stimespec* rem_time=NULL;        // auxiliary structure, in case of sleep-interruption
@@ -31,7 +29,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
     struct sockaddr_un sa;      // server socket address
 
-    serv_sk=calloc(strlen(sockname)+1, sizeof(char));       // memorizes the server's address in order to modify the connection later TODO memerr
+    serv_sk=calloc(strlen(sockname)+1, sizeof(char));       // memorizes the server's address in order to modify the connection later
     if(!serv_sk) return ERR;
 
     strcpy(serv_sk, sockname);        // writes the sock address in a global variable to store it
@@ -109,7 +107,6 @@ int openFile(const char* pathname, int flags) {
     // communicates operation
     *int_buf=op;
     writen(fd_sock, (void*)int_buf, sizeof(int));     // tells the server what operation to execute
-    LOG_DEBUG("Breakpoint: just written %d\n", *int_buf);  // TODO REMOVE
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_open;}       // if the operation prep failed for some reason, abort the operation
 
@@ -155,7 +152,6 @@ int openFile(const char* pathname, int flags) {
             subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
             if(!subst_files_data) return ERR;   // fatal error
             readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
-            LOG_DEBUG("Contenuto file recuperato: %s\n", (char*)subst_files_data);  // TODO REMOVE
         }
 
         // if the miss dir is set, save the file in it
@@ -241,7 +237,6 @@ int readFile(const char* pathname, void** buf, size_t* size) {
         readn(fd_sock, (void*)(*buf), (*size));    // gets the actual file content
         if(!(*buf)) {errno=EIO; goto cleanup_read;}
     }
-    LOG_DEBUG("Content: %s\n", (char*)(*buf));  // TODO REMOVE
 
     if(int_buf) free(int_buf);
     return SUCCESS;       // the file has been opened on the server
@@ -309,7 +304,6 @@ int readNFiles(int N, const char* dirname) {
             returned_files_data=(byte*)calloc(returned_files_size, sizeof(byte));
             if(!returned_files_data) return ERR;   // fatal error
             readn(fd_sock, (void*)returned_files_data, returned_files_size);      // reading file
-            LOG_DEBUG("Contenuto file recuperato: %s\n", (char*)returned_files_data);  // TODO REMOVE
         }
 
         // if the miss dir is set, save the file in it
@@ -372,9 +366,7 @@ int writeFile(const char* pathname, const char* dirname) {
     byte* subst_files_data=NULL;    // will hold the data of each of the files expelled (one at a time)
     char* final_path=NULL;  // will hold the path to save each of the the expelled file (one at a time)
 
-    LOG_DEBUG("File name: %s\n", pathname);
     if((fd=open(pathname, O_RDONLY))==ERR) goto cleanup_write;    // opening the file
-    LOG_DEBUG("WRITING FILE\n");
     fileStat=(struct stat*)malloc(sizeof(struct stat));     // getting file struct
     if(!fileStat) return ERR;
     if((fstat(fd, fileStat))==ERR) goto cleanup_write;  // getting file info
@@ -419,11 +411,9 @@ int writeFile(const char* pathname, const char* dirname) {
     // receives the number of expelled files
     readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
     if(subst_files_num<0) {errno=res; goto cleanup_write;}
-    LOG_DEBUG("LOOK IM HERE\n");
 
     // receiving the expelled files
     for(i=0; i<subst_files_num; i++) {
-        LOG_DEBUG("Receiving expelled file\n"); // TODO remove
         subst_files_name_len=0;
         readn(fd_sock, (void*)&subst_files_name_len, sizeof(size_t));    // reading pathname length
         if(subst_files_name_len<0) {errno=EILSEQ; goto cleanup_write;}
@@ -437,7 +427,6 @@ int writeFile(const char* pathname, const char* dirname) {
             subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
             if(!subst_files_data) return ERR;   // fatal error
             readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
-            LOG_DEBUG("File content: %s\n\n", (char*)subst_files_data);
         }
 
         // if the miss dir is set, save the file in it
@@ -491,7 +480,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     if(!pathname || !buf) {errno=EINVAL; return ERR;}       // pathname cannot be NULL
     if(is_connected==0) {errno=ECONNREFUSED; return ERR;}      // the client must be connected to send requests
     errno=0;
-    LOG_DEBUG("Look I made it this far\nerrno: %d\n", errno);     // TODO REMOVE
 
     op_code op=WRITE_F_APP;
     int* int_buf=(int*)malloc(sizeof(int));        // will hold certain server responses for error detection
@@ -532,7 +520,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     writen(fd_sock, (void*)buf, size);  // sends the actual file
     readn(fd_sock, (void*)int_buf, sizeof(int));
     if((*int_buf)!=SUCCESS) res=*int_buf;   // if the server coudln't read the file, store the err
-    LOG_DEBUG("Append result: %d\n", *int_buf);
 
 
     // ##### RETRIEVING SUBSTITUTED FILES #####
@@ -540,7 +527,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     // receives the number of expelled files
     readn(fd_sock, (void*)&subst_files_num, sizeof(unsigned));
     if(subst_files_num<0) {errno=res; goto cleanup_append;}
-    LOG_DEBUG("Espulsi %d files per miss\n", subst_files_num);  // TODO REMOVE
 
     // receiving the expelled files
     for(i=0; i<subst_files_num; i++) {
@@ -557,7 +543,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
             subst_files_data=(byte*)calloc(subst_files_size, sizeof(byte));
             if(!subst_files_data) return ERR;   // fatal error
             readn(fd_sock, (void*)subst_files_data, subst_files_size);      // reading file
-            LOG_DEBUG("Content: %s\n", (char*)subst_files_data);    // TODO REMOVE
         }
 
         // if the miss dir is set, save the file in it
@@ -569,12 +554,10 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
             strncat(final_path, dirname, UNIX_PATH_MAX-strlen(final_path));
             strncat(final_path, basename(subst_files_name), UNIX_PATH_MAX-strlen(final_path));
             if((temp_fd=open(final_path, O_WRONLY | O_APPEND | O_CREAT, 0777))==ERR) {
-                LOG_DEBUG("Error opening file\n");
                 goto cleanup_append;
             }
             if(subst_files_size) {
                 if((write(temp_fd, (void*)subst_files_data, subst_files_size))==ERR) {
-                    LOG_DEBUG("Error writing on file\n");
                     if((close(temp_fd))==ERR) return ERR;
                     goto cleanup_append;
                 }
@@ -680,7 +663,6 @@ int unlockFile(const char* pathname) {
 
     readn(fd_sock, (void*)int_buf, sizeof(int));    // reads the operation result value
     if((*int_buf)!=SUCCESS) {errno=*int_buf; goto cleanup_unlock;}       // if the operation failed, return error
-    LOG_DEBUG("Unlock operation result: %d\n", *int_buf);
 
 
     if(int_buf) free(int_buf);
@@ -770,32 +752,4 @@ int removeFile(const char* pathname) {
 cleanup_rm:
     if(int_buf) free(int_buf);
     return ERR;
-}
-
-
-/* #################################################################################################### */
-/* ######################################### HELPER FUNCTIONS ######################################### */
-/* #################################################################################################### */
-
-
-char* build_path_name(const char* dir, const char* name) {
-    if(!dir || !name) return NULL;
-    int dirlen = strlen(dir);
-    int namelen = strlen(name);
-    if(dirlen+namelen >= 1024-2) return NULL;
-
-    char* path_name = (char*)malloc(1024*sizeof(char));
-    if(!path_name) return NULL;
-    
-    strncpy(path_name, dir, dirlen);
-
-    if(path_name[dirlen] != '/') {
-        path_name[dirlen+1] = '/';
-        path_name[dirlen+2] = '\0';
-    }
-    
-    strncpy(path_name, name, namelen);
-    // TODO remove excess '/' from the name
-
-    return path_name;
 }

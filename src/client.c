@@ -1,8 +1,6 @@
 #include "client.h"
 #include "client_API.h"
 
-// TODO:    aggiungere punti di stampa per il flag -p
-
 char f_flag=0;      // used in order not to duplicate the -f command
 char p_flag=0;      // used in order not to duplicate the -p command
 byte D_flag=0;      // used in order  to couple -D with -w or -W
@@ -11,6 +9,8 @@ byte t_flag=0;      // used in order to temporally distantiate consecutive reque
 byte sleep_time=0;      // used to set a sleep between consecutive requests
 byte conn_timeout=10;    // used to set a time-out to connection attempts
 unsigned conn_delay=500;      // used to set a time margin between consecutive connection attempts
+
+conc_queue* open_files_queue=NULL;      // used to keep track of the files opened by the client
 
 
 static int parse_command(char**);       // parses the command line, executing requests one by one
@@ -29,6 +29,7 @@ static int lock_files(char*);       // specifies the files to lock on the file-s
 static int unlock_files(char*);     // specifies the files to unlock on the file-server
 static int remove_files(char*);     // attempts to remove the specified files from the file-server
 static int append_files(char*);     // writes the file passed as argument in append
+static int close_files(conc_queue*);    // closes all files saved in the queue
 
 
 
@@ -36,8 +37,10 @@ int main(int argc, char* argv[]) {
 
     if(argc==1) { LOG_ERR(EINVAL, "args required\n"); return ERR; }      // immidiately terminates if no param is passed in input
 
-    unsigned short i;       // serves as an index in for-loops
     short temperr;      // used for error codes
+
+    open_files_queue=conc_fifo_create(NULL);    // creating the queue to keep track of the open files
+    if(!open_files_queue) {LOG_ERR(errno, "creating open files queue"); return ERR;}
 
     if((temperr=parse_command(argv))==ERR) {
         if(save_dir) free(save_dir);
@@ -45,7 +48,10 @@ int main(int argc, char* argv[]) {
         return ERR;
     }
 
-    
+    if((temperr=fifo_dealloc_full(open_files_queue))==ERR)
+    {LOG_ERR(errno, "destroying open files queue"); return ERR;}
+
+
     if(save_dir) free(save_dir);
     if(miss_dir) free(miss_dir);
     return SUCCESS;         // successful termination
@@ -221,9 +227,11 @@ static int parse_command(char** commands) {
             LOG_ERR(EINVAL, "invalid flag");
             goto cleanup;
         }
-        sleep(sleep_time);      // if -t has been used, sleep for the time specified
+        if((usleep(US_TO_MS(sleep_time)))==ERR)      // if -t has been used, sleep for the time specified
+        {LOG_ERR(errno, "sleeping between operations"); return ERR;}
     }
 
+    if((temperr=close_files(open_files_queue))==ERR) return ERR;
     closeConnection(sockname);
     return SUCCESS;
 
@@ -358,9 +366,15 @@ static int send_files(char* arg) {
                 return ERR;
             }
         }
+        // pushing the opened file's name into the open file queue
+        char* filename=strdup(token);
+        if(!filename) {LOG_ERR(errno, "-w - could not register file opening"); return ERR;}
+        if((temperr=conc_fifo_push(open_files_queue, (void*)filename))==ERR)
+        {LOG_ERR(errno, "-W: pushing filename into open files queue"); return ERR;}
+
         struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
         if(!file_stat) return ERR;
-        if((temperr=stat(token, file_stat))==ERR)
+        if((temperr=stat(filename, file_stat))==ERR)
         {LOG_ERR(errno, "-W getting file info"); return ERR;}
         LOG_OUTPUT("-W: successfully wrote file  \"%s\" to the server (%lubytes written)\n",token, file_stat->st_size);
         free(file_stat);
@@ -443,10 +457,10 @@ static int read_files(char* arg) {
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
         if((temperr=readFile(token, &buffer, &size))==ERR) {
-            LOG_ERR(errno, "-r - error while writing files");
+            LOG_ERR(errno, "-r - error while reading files");
             goto cleanup_2;
         }
-        LOG_OUTPUT("-r: successfully read file \"%s\" from the server (%lubytes read\n", (char*)buffer, size);
+        LOG_OUTPUT("-r: successfully read file \"%s\" from the server (%lubytes read\n", (char*)token, size);
         // if a save folder has been specified, save the file obtained there; else, discard it
         if(save_dir) {
             // if the file has been successfully retrieved, write it in the specified folder
@@ -673,6 +687,10 @@ static int visit_folder(char* starting_dir, int* rem_files) {
                     goto cleanup_vis_fold;
                 }
             }
+            // pushing the opened file's name into the open file queue
+            if((temperr=conc_fifo_push(open_files_queue, (void*)curr_elem_name))==ERR)
+            {LOG_ERR(errno, "-w: pushing filename into open files queue"); return ERR;}
+
             struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
             if(!file_stat) return ERR;
             if((temperr=stat(curr_elem_name, file_stat))==ERR)
@@ -730,5 +748,24 @@ static int append_files(char* arg) {
 
     if(file_stat) free(file_stat);
     if(buf) free(buf);
+    return SUCCESS;
+}
+
+
+// closes every file whose name is stored in the queue
+static int close_files(conc_queue* open_files) {
+    int temperr;
+    char* temp_file;
+
+    // if there are open files' filenames, closes them
+    while((temp_file=(char*)conc_fifo_pop(open_files))) {
+        if((temperr=closeFile(temp_file))==ERR) {
+            LOG_ERR(errno, "closing file");
+            return ERR;
+        }
+        if(temp_file) free(temp_file);
+    }
+
+
     return SUCCESS;
 }

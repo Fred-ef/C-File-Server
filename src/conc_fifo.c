@@ -21,8 +21,8 @@ conc_queue* conc_fifo_create(void* data) {
 
 
 int conc_fifo_push(conc_queue* queue, void* data) {
-    if(!queue) {errno=EINVAL; return ERR;}     // Uninitialized list
-    if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized list
+    if(!queue) {errno=EINVAL; return ERR;}     // Uninitialized queue
+    if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized queue
 
     int temperr;
     conc_node newelement=conc_node_create(data);
@@ -31,7 +31,7 @@ int conc_fifo_push(conc_queue* queue, void* data) {
     temperr=pthread_mutex_lock(&((queue->head)->node_mtx));
     if(temperr) {errno=temperr; free(newelement); return ERR;}
 
-    if(!((queue->head)->next)) {         // If list is empty, append element and return
+    if(!((queue->head)->next)) {         // If queue is empty, append element and return
         (queue->head)->next=newelement;
         temperr=pthread_mutex_unlock(&((queue->head)->node_mtx));
         if(temperr) {errno=temperr; free(newelement); return ERR;}
@@ -54,10 +54,10 @@ int conc_fifo_push(conc_queue* queue, void* data) {
 }
 
 
-// Removes the generic node at the list's head
+// Removes the generic node at the queue's head
 void* conc_fifo_pop(conc_queue* queue) {
-    if(!queue) {errno=EINVAL; return (void*)NULL;}     // Uninitialized list
-    if(!(queue->head)) {errno=EINVAL; return (void*)NULL;}     // Uninitialized list
+    if(!queue) {errno=EINVAL; return (void*)NULL;}     // Uninitialized queue
+    if(!(queue->head)) {errno=EINVAL; return (void*)NULL;}     // Uninitialized queue
 
     int temperr;
     errno=0;
@@ -85,10 +85,10 @@ void* conc_fifo_pop(conc_queue* queue) {
     return (conc_node_destroy(aux));
 }
 
-// Returns TRUE if the list is empty, ELSE otherwise
+// Returns TRUE if the queue is empty, ELSE otherwise
 int conc_fifo_isEmpty(conc_queue* queue) {
-  if(!queue) {errno=EINVAL; return ERR;}     // Uninitialized list
-  if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized list
+  if(!queue) {errno=EINVAL; return ERR;}     // Uninitialized queue
+  if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized queue
 
   int temperr;
   temperr=pthread_mutex_lock(&((queue->head)->node_mtx));
@@ -108,16 +108,16 @@ int conc_fifo_isEmpty(conc_queue* queue) {
 }
 
 
-// Deallocates each generic node of the list and all of their data; WARNING: NON CONCURRENT
+// Deallocates each generic node of the queue and all of their data; WARNING: NON CONCURRENT
 int fifo_dealloc_full(conc_queue* queue) {
-    if(!queue) {errno=EINVAL; return ERR;}     // Uninitialized list
-    if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized list
+    if(!queue) {errno=EINVAL; return ERR;}     // Uninitialized queue
+    if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized queue
 
     int temperr;
     void* tempres;
     
-    if(!((queue->head)->next)) {        // For an empty list, deallocating its head node and pointer suffices
-        if(!(tempres=conc_node_destroy(queue->head))) {return ERR;}     // errno already set by the call
+    if(!((queue->head)->next)) {        // For an empty queue, deallocating its head node and pointer suffices
+        if((tempres=conc_node_destroy(queue->head))) {return ERR;}     // errno already set by the call
         free(tempres);
         return SUCCESS;
     }

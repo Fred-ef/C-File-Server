@@ -40,14 +40,17 @@ int ll_remove(llist* list, void* data, int(*cmp_fnc)(const void*, const void*)) 
     if(!list) {errno=EINVAL; return ERR;}     // Uninitialized list
     if(!data) {errno=EINVAL; return ERR;}   // invalid data
 
-    conc_node aux1=list->head, aux2;
+    conc_node aux1=list->head;
+    conc_node aux2=aux1;
     while(aux1!=NULL && (cmp_fnc(aux1->data, data))) {
         aux2=aux1;
         aux1=aux1->next;
     }
 
     if(aux1) {
-        aux2->next=aux1->next;
+        if(aux1==list->head) list->head=NULL;
+        else aux2->next=aux1->next;
+        
         if(aux1->data) free(aux1->data);
         pthread_mutex_destroy(&(aux1->node_mtx));
         free(aux1);
@@ -62,7 +65,7 @@ int ll_search(llist* list, void* data, int(*cmp_fnc)(const void*, const void*)) 
     if(!data) {errno=EINVAL; return ERR;}   // invalid data
 
     conc_node aux1;
-    for(aux1=list->head; (aux1!=NULL && (cmp_fnc(aux1->data, data))); aux1=aux1->next);
+    for(aux1=list->head; aux1!=NULL && (cmp_fnc(aux1->data, data)); aux1=aux1->next);
 
     if(!aux1) return FALSE;
     return TRUE;

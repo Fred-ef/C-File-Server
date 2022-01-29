@@ -57,9 +57,4 @@ int closeFile(const char* pathname);
 int removeFile(const char* pathname);
 
 
-
-/* ########################## Auxiliary functions ################################## */
-
-char* build_path_name(const char*, const char*);     // build a pathname from the dir and filename given
-
 #endif // client_API_h
