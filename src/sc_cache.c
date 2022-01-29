@@ -170,8 +170,9 @@ int sc_algorithm(sc_cache* cache, const size_t size_var, file*** replaced_files,
             if((ht->table)[j].entry && (ht->table)[j].entry!=ht->mark && (strcmp(((file*)ht->table[j].entry)->name, filename))) {
                 if((ht->table)[j].r_used) (ht->table)[j].r_used--;  // if the item was recently used, reset its used-bit
                 else {
-                    // if the file isn't currently locked, proceed to its elimination
-                    if(!((file*)ht->table[j].entry)->f_lock) {
+                    // if the file isn't currently locked nor opened, proceed to its elimination
+                    if((!((file*)ht->table[j].entry)->f_lock) &&
+                    (ll_isEmpty(((file*)ht->table[j].entry)->open_list))) {
                         LOG_DEBUG("\n#####\nRemoving file\n#####\n\n"); // TODO REMOVE
                         // locking cache's mem-mtx
                         temperr=pthread_mutex_lock(&(cache->mem_check_mtx));

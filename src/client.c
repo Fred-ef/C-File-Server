@@ -1,6 +1,8 @@
 #include "client.h"
 #include "client_API.h"
 
+// TODO fix helper file path
+
 char f_flag=0;      // used in order not to duplicate the -f command
 char p_flag=0;      // used in order not to duplicate the -p command
 byte D_flag=0;      // used in order  to couple -D with -w or -W
@@ -9,12 +11,13 @@ byte t_flag=0;      // used in order to temporally distantiate consecutive reque
 byte sleep_time=0;      // used to set a sleep between consecutive requests
 byte conn_timeout=10;    // used to set a time-out to connection attempts
 unsigned conn_delay=500;      // used to set a time margin between consecutive connection attempts
+char* helper_file_path="../help.txt";   // used to print -h info
 
 llist* open_files_list=NULL;      // used to keep track of the files opened by the client
 
 
 static int parse_command(char**);       // parses the command line, executing requests one by one
-static void print_help();       // prints a comprehensive command list
+static int print_help();       // prints a comprehensive command list
 static int is_command(char*);       // tells whether a given token is a command
 static int set_sock(char*);     // sets the file-server's socket address and initiates connection
 static int send_dir(char*);     // sends the specified number of files from the specified folder
@@ -76,7 +79,7 @@ static int parse_command(char** commands) {
     // ########## PARSING AND EXECUTING SETTING-OPERATIONS ##########
     while(commands[i]) {    // elaborate settings-related flags first (-h, -f, -d, -D, -p)
         if(!strcmp(commands[i], "-h")) {
-            print_help();
+            if((temperr=print_help())==ERR) return ERR;
             return SUCCESS;     // this command immediately terminates the client
         }
         else if(!strcmp(commands[i], "-f")) {
@@ -253,9 +256,39 @@ static int is_command(char* cmd) {
 
 
 // -h | prints a list of the available commands
-static void print_help() {
-    // TODO
-    LOG_DEBUG("Help:\n");
+static int print_help() {
+    int temperr;
+    int file_fd;
+    size_t file_size=0;
+    char* file_buffer=NULL;
+
+    struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
+    if(!file_stat) {LOG_ERR(errno, "-h - allocating file info struct"); return ERR;}
+    if((temperr=stat(helper_file_path, file_stat))==ERR)
+    {LOG_ERR(errno, "-h - getting file info"); return ERR;}
+    file_size=file_stat->st_size;
+    free(file_stat);
+
+    file_buffer=(char*)calloc(file_size, sizeof(char));
+    if(!file_buffer) {LOG_ERR(errno, "-h - allocating buffer"); return ERR;}
+
+    if((file_fd=open(helper_file_path, O_RDONLY))==ERR) {
+        LOG_ERR(errno, "-h - opening helper file");
+        return ERR;
+    }
+    if((temperr=read(file_fd, file_buffer, file_size))==ERR) {
+        LOG_ERR(errno, "-h - reading helper file");
+        return ERR;
+    }
+    LOG_DEBUG("%s\n", file_buffer);
+    if((temperr=close(file_fd))==ERR) {
+        LOG_ERR(errno, "-h - closing helper file");
+        return ERR;
+    }
+
+
+    if(file_buffer) free(file_buffer);
+    return SUCCESS;
 }
 
 

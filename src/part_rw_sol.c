@@ -12,7 +12,7 @@ int readn(int source, void* buf, int toread) {
     }
     else if(bread==0) break;  // read operation completed
     bleft-=bread;   // Updates the number of bytes left (subtracting those just read)
-    buf+=bread;   // Updates the current position of buffer pointer
+    buf=(char*)buf+bread;   // Updates the current position of buffer pointer
   }
   return (toread-bleft);    // Returns the total number of bytes read
 }
@@ -29,7 +29,7 @@ int writen(int source, void* buf, int towrite) {
     }
     else if (bwritten==0) break;  // write operation completed
     bleft-=bwritten;    // Updates the number of bytes left (subtracting those just written)
-    buf+=bwritten;    // Updates the current position of buffer pointer
+    buf=(char*)buf+bwritten;    // Updates the current position of buffer pointer
   }
   return (towrite-bleft);   // Returns the total number of bytes written
 }

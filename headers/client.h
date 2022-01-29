@@ -23,6 +23,8 @@ byte t_flag;      // used in order to temporally distantiate consecutive request
 
 byte sleep_time;      // used to set a sleep between consecutive requests
 
+char* helper_file_path;     // used to read the helper file
+
 byte conn_timeout;    // used to set a time-out to connection attempts
 unsigned conn_delay;      // used to set a time margin between consecutive connection attempts
 
