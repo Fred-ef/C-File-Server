@@ -1,8 +1,6 @@
 #include "client.h"
 #include "client_API.h"
 
-// TODO write helper file content
-
 char f_flag=0;      // used in order not to duplicate the -f command
 char p_flag=0;      // used in order not to duplicate the -p command
 byte D_flag=0;      // used in order  to couple -D with -w or -W
@@ -11,7 +9,7 @@ byte t_flag=0;      // used in order to temporally distantiate consecutive reque
 byte sleep_time=0;      // used to set a sleep between consecutive requests
 byte conn_timeout=10;    // used to set a time-out to connection attempts
 unsigned conn_delay=500;      // used to set a time margin between consecutive connection attempts
-char* helper_file_path="../help.txt";   // used to print -h info
+char* helper_file_path="./help.txt";   // used to print -h info
 
 llist* open_files_list=NULL;      // used to keep track of the files opened by the client
 
@@ -235,7 +233,7 @@ static int parse_command(char** commands) {
         {LOG_ERR(errno, "sleeping between operations"); return ERR;}
     }
 
-    //if((temperr=close_files(open_files_list))==ERR) return ERR;
+    if((temperr=close_files(open_files_list))==ERR) return ERR;
     closeConnection(sockname);
     return SUCCESS;
 
@@ -248,7 +246,7 @@ cleanup:
 
 // checks if the given token is a command flag, whether it is valid or not
 static int is_command(char* cmd) {
-    if(!cmd) return TRUE;   // TODO revert
+    if(!cmd) return TRUE;
     if(cmd[0]=='-') return TRUE;
 
     return FALSE;
@@ -280,7 +278,6 @@ static int print_help() {
         LOG_ERR(errno, "-h - reading helper file");
         return ERR;
     }
-    LOG_DEBUG("%s\n", file_buffer);
     if((temperr=close(file_fd))==ERR) {
         LOG_ERR(errno, "-h - closing helper file");
         return ERR;
@@ -403,13 +400,13 @@ static int send_files(char* arg) {
         // pushing the opened file's name into the open file queue
         char* filename=strdup(token);
         if(!filename) {LOG_ERR(errno, "-W - could not register file opening"); return ERR;}
-        if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+        if((temperr=ll_insert_head(&(open_files_list), (void*)filename, str_ptr_cmp))==ERR)
         {LOG_ERR(errno, "-W: pushing filename into open files list"); return ERR;}
 
         struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
         if(!file_stat) return ERR;
         if((temperr=stat(filename, file_stat))==ERR)
-        {LOG_ERR(errno, "-W getting file info"); return ERR;}
+        {LOG_ERR(errno, "-W - getting file info"); return ERR;}
         LOG_OUTPUT("-W: successfully wrote file  \"%s\" to the server (%lubytes written)\n",token, file_stat->st_size);
         free(file_stat);
 
@@ -498,7 +495,7 @@ static int read_files(char* arg) {
         // pushing the opened file's name into the open file queue
         char* filename=strdup(token);
         if(!filename) {LOG_ERR(errno, "-r - could not register file opening"); return ERR;}
-        if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+        if((temperr=ll_insert_head(&(open_files_list), (void*)filename, str_ptr_cmp))==ERR)
         {LOG_ERR(errno, "-r: pushing filename into open files list"); return ERR;}
 
         if((temperr=readFile(token, &buffer, &size))==ERR) {    // reading the file
@@ -604,7 +601,7 @@ static int lock_files(char* arg) {
         // pushing the opened file's name into the open file queue
         char* filename=strdup(token);
         if(!filename) {LOG_ERR(errno, "-l - could not register file opening"); return ERR;}
-        if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+        if((temperr=ll_insert_head(&(open_files_list), (void*)filename, str_ptr_cmp))==ERR)
         {LOG_ERR(errno, "-l: pushing filename into open files list"); return ERR;}
 
         if((temperr=lockFile(token))==ERR) {    // locking the file
@@ -655,6 +652,22 @@ static int remove_files(char* arg) {
     }
 
     while(token) {
+        if((temperr=openFile(token, 0))==ERR) {    // opening the file
+            LOG_ERR(errno, "-c - could not open file");
+            return ERR;
+        }
+
+        // pushing the opened file's name into the open file queue
+        char* filename=strdup(token);
+        if(!filename) {LOG_ERR(errno, "-c - could not register file opening"); return ERR;}
+        if((temperr=ll_insert_head(&(open_files_list), (void*)filename, str_ptr_cmp))==ERR)
+        {LOG_ERR(errno, "-c: pushing filename into open files list"); return ERR;}
+
+        if((temperr=lockFile(token))==ERR) {    // locking the file
+            LOG_ERR(errno, "-c - error while locking files");
+            return ERR;
+        }
+
         if((temperr=removeFile(token))==ERR) {
             LOG_ERR(errno, "-c - error while removing files");
             return ERR;
@@ -682,9 +695,8 @@ static int visit_folder(char* starting_dir, int* rem_files) {
     if(!curr_elem_name) {LOG_ERR(errno, "-w - memerr"); return ERR;}
     memset((void*)curr_elem_name, '\0', UNIX_PATH_MAX*sizeof(char));
 
-    // copying the current dir path as the starting of the files' paths and completing with '/'
+    // copying the current dir path as the starting of the files' paths
     strcpy(curr_elem_name, starting_dir);
-    strncat(curr_elem_name, "/", (UNIX_PATH_MAX-strlen(curr_elem_name)));
 
     // getting the position of the null-terminating character in current dir path
     // this will be used later to re-set the position to scan other files
@@ -746,7 +758,7 @@ static int visit_folder(char* starting_dir, int* rem_files) {
             // pushing the opened file's name into the open file list
             char* filename=strdup(curr_elem_name);
             if(!filename) {LOG_ERR(errno, "-w - could not register file opening"); return ERR;}
-            if((temperr=ll_insert_head(open_files_list, (void*)filename, str_ptr_cmp))==ERR)
+            if((temperr=ll_insert_head(&(open_files_list), (void*)filename, str_ptr_cmp))==ERR)
             {LOG_ERR(errno, "-w: pushing filename into open files list"); return ERR;}
 
             struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));

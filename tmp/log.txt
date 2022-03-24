@@ -1,0 +1,280 @@
+##########
+Client 6 just connected
+##########
+
+##########
+openLock: client6 locked file ./files/file1.txt
+##########
+
+##########
+openCreate: client6 created file ./files/file1.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+writeFile: client6 wrote file ./files/file1.txt to the server (write_size 156621 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openLock: client6 locked file ./files/file2.txt
+##########
+
+##########
+openCreate: client6 created file ./files/file2.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+writeFile: client6 wrote file ./files/file2.txt to the server (write_size 332161 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openFile: client6 opened file ./files/file1.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+appendToFile: client6 wrote file ./files/file1.txt to the server (write_size 156621 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openFile: client6 opened file ./files/file1.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+readFile: client6 read file ./files/file1.txt (read_size 313242 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openFile: client6 opened file ./files/file2.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+readFile: client6 read file ./files/file2.txt (read_size 332161 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openLock: client6 locked file ./files/file3.txt
+##########
+
+##########
+openCreate: client6 created file ./files/file3.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+writeFile: client6 wrote file ./files/file3.txt to the server (write_size 57325 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openFile: client6 opened file ./files/file2.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+appendToFile: client6 wrote file ./files/file2.txt to the server (write_size 332161 bytes)
+##########
+
+##########
+appendToFile: file ./files/file1.txt expelled (read_size 313242 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openLock: client6 locked file ./files/file1.txt
+##########
+
+##########
+openCreate: client6 created file ./files/file1.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+writeFile: client6 wrote file ./files/file1.txt to the server (write_size 156621 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openFile: client6 opened file ./files/file2.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+appendToFile: client6 wrote file ./files/file2.txt to the server (write_size 332161 bytes)
+##########
+
+##########
+appendToFile: file ./files/file3.txt expelled (read_size 57325 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openLock: client6 locked file ./files/file3.txt
+##########
+
+##########
+openCreate: client6 created file ./files/file3.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+writeFile: client6 wrote file ./files/file3.txt to the server (write_size 57325 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+openFile: client6 opened file ./files/file2.txt
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+appendToFile: client6 wrote file ./files/file2.txt to the server (write_size 332161 bytes)
+##########
+
+##########
+appendToFile: file ./files/file1.txt expelled (read_size 156621 bytes)
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+Client 6 just connected
+##########
+
+##########
+MANAGER: max cache file size: 4 files
+##########
+
+##########
+MANAGER: max cache byte size: 878268 bytes
+##########
+
+##########
+MANAGER: max clients connected at the same time: 1 clients
+##########
+
+##########
+MANAGER: total number of expelled files: 3 files
+##########
+
+##########
+WORKER0 served 8 requests
+##########
+
+##########
+WORKER2 served 6 requests
+##########
+
+##########
+WORKER1 served 8 requests
+##########
+
+##########
+WORKER3 served 5 requests
+##########
+

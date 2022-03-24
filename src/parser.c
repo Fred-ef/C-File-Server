@@ -1,6 +1,5 @@
 #include "parser.h"
 
-// TODO provare ad aggiungere 1 alla lunghezza delle stringe generate dalle funzioni
 
 // Takes as input the parameter to search, the file in which the parameter is to be searched and the variable in which to save its value
 int parse(char* path, char* key, unsigned long* dest) {

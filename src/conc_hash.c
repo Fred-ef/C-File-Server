@@ -34,7 +34,6 @@ unsigned int conc_hash_hashfun(const char* key, int size) {
     for(i=0; i<(strlen(key)); i++) {
         result = key[i] + (result << 6) + (result << 16) - result;
     }
-    printf("THREAD: %d\tKEY: %u\n", (gettid()), ((result%(get_next_prime(2*size))) % (2*size)));
     return ((result%(get_next_prime(2*size))) % (2*size));
 }
 

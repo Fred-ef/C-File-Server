@@ -8,12 +8,14 @@
 #include <sys/un.h>
 #include <pthread.h>
 #include <sys/select.h>
+#include <signal.h>
 
 #include "err_cleanup.h"
 #include "definitions.h"
 #include "parser.h"
 #include "conc_fifo.h"
 #include "serv_worker.h"
+#include "serv_logger.h"
 #include "sc_cache.h"
 
 #define PIPE_MSG_LEN sizeof(int)
@@ -24,6 +26,7 @@ size_t server_file_size;      // indicates the capacity of the server in terms o
 
 unsigned long thread_pool_cap;      // indicates the maximum number of worker-threads the server can manage at the same time
 char* sock_addr;       // will hold the server's main socket address
+char* log_file_path;    // will hold the logfile's pathname
 conc_queue* requests_queue;        // the queue worker-threads will use to dispatch client's requests
 conc_queue* log_queue;          // the queue used to pass log-messages to the logger thread
 pthread_t* worker_threads_arr;      // array of worker threads

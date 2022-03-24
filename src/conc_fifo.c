@@ -114,15 +114,21 @@ int fifo_dealloc_full(conc_queue* queue) {
     if(!(queue->head)) {errno=EINVAL; return ERR;}     // Uninitialized queue
 
     int temperr;
-    void* tempres;
+    void* tempres=NULL;
     
     if(!((queue->head)->next)) {        // For an empty queue, deallocating its head node and pointer suffices
         if((tempres=conc_node_destroy(queue->head))) {return ERR;}     // errno already set by the call
         free(tempres);
+        temperr=pthread_mutex_destroy(&(queue->queue_mtx));
+        if(temperr) {errno=temperr; return ERR;}
+        temperr=pthread_cond_destroy(&(queue->queue_cv));
+        if(temperr) {errno=temperr; return ERR;}
+        free(queue);
         return SUCCESS;
     }
 
-    conc_node aux1=queue->head, aux2;
+    conc_node aux1=queue->head;
+    conc_node aux2=NULL;
     while(aux1!=NULL) {
         aux2=aux1;
         aux1=aux1->next;

@@ -1,0 +1,40 @@
+SHELL		= /bin/bash
+CC		= gcc
+INCLUDES	= -I ./headers
+SRC		= src
+CFLAGS		= -g -Wall -pedantic -std=c99
+THREADS		= -pthread
+TMP		= ./expelled ./saved ./tmp
+
+client_dep	= ./src/client_API.c
+
+.PHONY		: all clean cleanall test1 test2 test3
+
+client		: src/client.c
+		$(CC) $(CFLAGS) 
+
+server		: src/serv_manager.c
+
+all		:
+		-mkdir expelled saved tmp;
+		make client;
+		make server;
+
+test1		:
+		make all;
+		test/test1.sh;
+
+test2		:
+		make all;
+		test/test2.sh
+
+test3		:
+		make all;
+		test/test3.sh
+
+
+clean		:
+		-rm -r -d $(TMP)
+
+cleanall	:
+		-rm -r -d $(TMP)

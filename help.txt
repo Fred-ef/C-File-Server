@@ -1,1 +1,25 @@
-Helper file
+-h : stampa la lista di tutte le opzioni accettate dal client
+
+-f filename : specifica il nome del socket AF_UNIX a cui connettersi
+
+-w dirname[,n=0] : invia al server i file nella cartella ‘dirname’, se n=0 (o non è specificato) non c’è un limite superiore
+
+-W file1[,file2]: lista di nomi di file da scrivere nel server separati da ‘,’
+
+-D dirname : cartella dove vengono scritti (lato client) i file che il server rimuove. Va usata congiuntamente all’opzione ‘-w’ o ‘-W’
+
+-r file1[,file2] : lista di nomi di file da leggere dal server separati da ‘,’
+
+-R [n=0] : tale opzione permette di leggere ‘n’ file qualsiasi attualmente memorizzati nel server; se n=0 (o non è specificato) allora vengono letti tutti i file presenti nel server;
+
+-d dirname : cartella dove scrivere i file letti con l’opzione ‘-r’ o ‘-R’. Va usata congiuntamente a ‘-r’ o ‘-R’
+
+-t time : tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
+
+-l file1[,file2] : lista di nomi di file su cui acquisire la mutua esclusione
+
+-u file1[,file2] : lista di nomi di file su cui rilasciare la mutua esclusione
+
+-c file1[,file2] : lista di file da rimuovere dal server se presenti
+
+-p : abilita le stampe sullo standard output per ogni operazione

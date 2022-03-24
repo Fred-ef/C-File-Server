@@ -332,7 +332,7 @@ int readNFiles(int N, const char* dirname) {
     }
 
     if(int_buf) free(int_buf);
-    return N;
+    return returned_files_num;
 
 // CLEANUP SECTION
 cleanup_readn:

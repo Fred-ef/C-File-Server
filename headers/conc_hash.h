@@ -23,6 +23,8 @@ typedef struct conc_hash_table {
 
 conc_hash_table* conc_hash_create(int);      // Creates and returns an empty concurrent hashtable
 unsigned int conc_hash_hashfun(const char*, int);       // Calculate a hash value for the operations
+int hash_dealloc_full(conc_hash_table*);    // deallocates the whole hash table WARNING non concurrent
+
 
 int get_next_prime(int);     // returns the first prime number after the argument passed
 

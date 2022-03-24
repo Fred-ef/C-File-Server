@@ -13,20 +13,20 @@ static int worker_file_close(int);
 // thread main
 void* worker_func(void* arg) {
 
+    int* id=(int*)arg;
+    long unsigned total_requests_num=0;
     int temperr;    // used for error handling
     int* int_buf=NULL;   // serves as a buffer for int values
     int client_fd;     // will hold the fd of the user that sent the request
     int op;     // will hold the operation code representing the current request
 
-    while(!hard_close) {
-        LOG_DEBUG("Worker cycle restarting...\n\n");
+    while(TRUE) {
 
         if((temperr=pthread_mutex_lock(&(requests_queue->queue_mtx)))==ERR)
         {LOG_ERR(temperr, "worker: locking req queue"); exit(EXIT_FAILURE);}
 
-        while(!(int_buf=(int*)conc_fifo_pop(requests_queue))) {  // checking for new requests
+        while(!(int_buf=(int*)conc_fifo_pop(requests_queue)) && !(hard_close)) {  // checking for new requests
             if(errno) {LOG_ERR(errno, "worker: reading from req queue"); exit(EXIT_FAILURE);}
-            LOG_DEBUG("Nothing to do here...\n");
 
             if((temperr=pthread_cond_wait(&(requests_queue->queue_cv), &(requests_queue->queue_mtx)))==ERR)
             {LOG_ERR(temperr, "worker: waiting on req queue"); exit(EXIT_FAILURE);}
@@ -35,12 +35,13 @@ void* worker_func(void* arg) {
         if((temperr=pthread_mutex_unlock(&(requests_queue->queue_mtx)))==ERR)
         {LOG_ERR(temperr, "worker: unlocking req queue"); exit(EXIT_FAILURE);}
 
+        if(hard_close) break;   // server must terminate immediately
+
         client_fd=*int_buf;    // preparing to serve the user's request
         if(int_buf) {free(int_buf); int_buf=NULL;}
 
         int_buf=(int*)malloc(sizeof(int));
-        *int_buf=0; // TODO check
-        LOG_DEBUG("new int value: %d\n", *int_buf);
+        *int_buf=0;
         if(!int_buf) {LOG_ERR(errno, "worker: preparing op code read"); exit(EXIT_FAILURE);}
 
         // getting the request into int_buf
@@ -50,28 +51,26 @@ void* worker_func(void* arg) {
         }
 
         op=*int_buf;    // reading the operation code
-        LOG_DEBUG("Serving request type %d of client %d\n", *int_buf, client_fd);   // TODO remove
 
         if(op==EOF || op==0) {   // the client closed the connection
-            LOG_DEBUG("Client %d disconnecting...\n\n\n", client_fd);
             *int_buf=client_fd;
             (*int_buf)*=-1; // tells the manager to close the connection with this client
-            // TODO assiurarsi che funzioni
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe");}
         }
         else if(op==OPEN_F) {
             if((temperr=worker_file_open(client_fd))==ERR)
             {LOG_ERR(errno, "worker: open file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (open)");}
-            LOG_DEBUG("OPEN_F operation completed\n\n\n");
         }
         else if(op==READ_F) {
             if((temperr=worker_file_read(client_fd))==ERR)
             {LOG_ERR(errno, "worker: read file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
@@ -80,6 +79,7 @@ void* worker_func(void* arg) {
         else if(op==READ_N_F) {
             if((temperr=worker_file_readn(client_fd))==ERR)
             {LOG_ERR(errno, "worker: readn file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
@@ -88,6 +88,7 @@ void* worker_func(void* arg) {
         else if(op==WRITE_F) {
             if((temperr=worker_file_write(client_fd))==ERR)
             {LOG_ERR(errno, "worker: write file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
@@ -96,6 +97,7 @@ void* worker_func(void* arg) {
         else if(op==WRITE_F_APP) {
             if((temperr=worker_file_write_app(client_fd))==ERR)
             {LOG_ERR(errno, "worker: write_app file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
@@ -104,6 +106,7 @@ void* worker_func(void* arg) {
         else if(op==LOCK_F) {
             if((temperr=worker_file_lock(client_fd))==ERR)
             {LOG_ERR(errno, "worker: lock file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
@@ -112,24 +115,25 @@ void* worker_func(void* arg) {
         else if(op==UNLOCK_F) {
             if((temperr=worker_file_unlock(client_fd))==ERR)
             {LOG_ERR(errno, "worker: unlock file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (unlock)");}
-            LOG_DEBUG("UNLOCK_F operation completed\n\n\n");
         }
         else if(op==RM_F) {
             if((temperr=worker_file_remove(client_fd))==ERR)
             {LOG_ERR(errno, "worker: remove file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (remove)");}
-            LOG_DEBUG("RM_F operation completed\n\n\n");
         }
         else if(op==CLOSE_F) {
             if((temperr=worker_file_close(client_fd))==ERR)
             {LOG_ERR(errno, "worker: close file error"); exit(EXIT_FAILURE);}
+            total_requests_num++;
 
             *int_buf=client_fd;    // tells the manager the operation is complete
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
@@ -144,10 +148,24 @@ void* worker_func(void* arg) {
             if((temperr=writen(fd_pipe_write, (void*)int_buf, PIPE_MSG_LEN))==ERR)
             {LOG_ERR(EPIPE, "worker: writing to the pipe (close)");}
         }
-        LOG_DEBUG("Finished\n");    // TODO REMOVE
         if(int_buf) {free(int_buf); int_buf=NULL;}  // resetting int_buf to NULL value
     }
 
+    int logfile_fd;
+    if((logfile_fd=open(log_file_path, O_WRONLY | O_APPEND | O_CREAT, 0777))==ERR) {
+        LOG_ERR(errno, "logger: opening log file");
+        exit(EXIT_FAILURE);
+    }
+
+    dprintf(logfile_fd, "##########\nWORKER%d served %lu requests\n##########\n\n", *id, total_requests_num);
+
+    if((close(logfile_fd))==ERR) {
+        LOG_ERR(errno, "logger: closing log file");
+        exit(EXIT_FAILURE);
+    }
+
+
+    if(id) free(id);
     if(int_buf) free(int_buf);
     pthread_exit((void*)SUCCESS);
 }
@@ -183,7 +201,6 @@ static int worker_file_open(int client_fd) {
 
     // reading the pathname
     if((readn(client_fd, (void*)pathname, path_len-1))==ERR) goto cleanup_w_open;
-    LOG_DEBUG("Pathname read: %s\n", pathname);
     if(!pathname) goto cleanup_w_open;
     *int_buf=SUCCESS;   // step OK
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_open;
@@ -202,7 +219,12 @@ static int worker_file_open(int client_fd) {
             if(errno!=EFBIG && errno!=EEXIST && errno!=ENOSPC) return ERR;  // fatal error
             *int_buf=errno; // preparing the error message for the client
             writen(client_fd, (void*)int_buf, sizeof(int));
-            if(new_file) free(new_file);
+            if(new_file) {
+                free(new_file->data);
+                free(new_file->name);
+                ll_dealloc_full(new_file->open_list);
+                free(new_file);
+            }
             res=ERR; goto return_expelled_files;
         }
     }
@@ -223,13 +245,15 @@ static int worker_file_open(int client_fd) {
             writen(client_fd, (void*)int_buf, sizeof(int));
             res=ERR; goto return_expelled_files;
         }
+        LOG_OPERATION("##########\nopenLock: client%d locked file %s\n##########\n\n", client_fd, pathname);
     }
-    LOG_DEBUG("Hey\n\n");   // TODO REMOVE
-    if(new_file) LOG_DEBUG("FILE %s CREATED, OPENED & LOCKED!\n", new_file->name);
 
     if(flags==(O_CREATE|O_LOCK))new_file->f_write=1;    // enabling the writeFile operation
     *int_buf=SUCCESS;   // tell the client the operation succeeded
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
+
+    if(new_file) {LOG_OPERATION("##########\nopenCreate: client%d created file %s\n##########\n\n", client_fd, new_file->name);}
+    else {LOG_OPERATION("##########\nopenFile: client%d opened file %s\n##########\n\n", client_fd, pathname);}
 
 
     // ##### RETURNING EXPELLED FILES #####
@@ -242,13 +266,13 @@ static int worker_file_open(int client_fd) {
         }
         subst_files_num=i;
     }
-    LOG_DEBUG("\nWARNING: %d files have been expelled\n\n", subst_files_num);   // TODO REMOVE
     // telling the client how many files to expect
     if((writen(client_fd, (void*)&subst_files_num, sizeof(unsigned)))==ERR) res=ERR;
 
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
+        LOG_OPERATION("##########\nopenFile: file %s expelled (read_size %lu bytes)\n##########\n\n", temp->name, temp->file_size);
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
@@ -331,6 +355,9 @@ static int worker_file_read(int client_fd) {
         if((writen(client_fd, (void*)data_read, bytes_read))==ERR) goto cleanup_w_read;
     
 
+    LOG_OPERATION("##########\nreadFile: client%d read file %s (read_size %lu bytes)\n##########\n\n", client_fd, pathname, bytes_read);
+    
+
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
     if(data_read) free(data_read);
@@ -354,6 +381,7 @@ static int worker_file_readn(int client_fd) {
     int files_to_return=0;
     file** returned_files=NULL;     // will hold all the files to send to the client
     unsigned returned_files_num=0;  // will hold the number of files to send to the client
+    unsigned long total_bytes_read=0;   // will hold the total number of bytes returned
 
 
     *int_buf=SUCCESS;   // the request has been accepted
@@ -366,7 +394,6 @@ static int worker_file_readn(int client_fd) {
 
     // if N was zero, return every file present
     if(!files_to_return) files_to_return=(int)(server_cache->max_file_number);
-    LOG_DEBUG("###\nFiles to return: %d\n###\n", files_to_return);
 
     // getting the files from the cache
     if((temperr=sc_return_n_files(server_cache, files_to_return, &returned_files))!=SUCCESS) {
@@ -386,17 +413,15 @@ static int worker_file_readn(int client_fd) {
         for(i=0; i<files_to_return; i++) {
             if(returned_files[i]==NULL) break;
         }
-        if(returned_files) LOG_DEBUG("Returned files present: %d\n", i);   // TODO REMOVE
         returned_files_num=i;
     }
-    LOG_DEBUG("\nWARNING: %d files have been retrieved\n\n", returned_files_num);   // TODO REMOVE
     // telling the client how many files to expect
     if((writen(client_fd, (void*)&returned_files_num, sizeof(unsigned)))==ERR) res=ERR;
 
     // sending the retrieved files back to the client
     for(i=0; i<returned_files_num; i++) {  // if there are no subst files, the cycle is skipped
-        LOG_DEBUG("Breakpoint\n");    // TODO REMOVE
         file* temp=returned_files[i];
+        total_bytes_read+=(temp->file_size);
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
@@ -410,11 +435,11 @@ static int worker_file_readn(int client_fd) {
             temperr=ll_dealloc_full(temp->open_list);
             if(temperr==ERR) return ERR;    // fatal error
         }
-        LOG_DEBUG("Sent\n");    // TODO REMOVE
         if(temp) free(temp);
     }
     
     if(res!=SUCCESS) goto cleanup_w_readn;
+    LOG_OPERATION("##########\nreadNFiles: client%d read %u files (read_size %lu bytes total)\n##########\n\n", client_fd, returned_files_num, total_bytes_read);
 
 
     if(int_buf) free(int_buf);
@@ -485,6 +510,8 @@ static int worker_file_write(int client_fd) {
         if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
     }
 
+    LOG_OPERATION("##########\nwriteFile: client%d wrote file %s to the server (write_size %lu bytes)\n##########\n\n", client_fd, pathname, bytes_written);
+
 
     // ##### RETURNING SUBSTITUTED FILES #####
 
@@ -495,13 +522,13 @@ static int worker_file_write(int client_fd) {
         }
         subst_files_num=i;
     }
-    LOG_DEBUG("\nWARNING: %d files have been expelled\n\n", subst_files_num);   // TODO REMOVE
     // telling the client how many files to expect
     if((writen(client_fd, (void*)&subst_files_num, sizeof(unsigned)))==ERR) res=ERR;
 
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
+        LOG_OPERATION("##########\nwriteFile: file %s expelled (read_size %lu bytes)\n##########\n\n", temp->name, temp->file_size);
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
@@ -583,7 +610,6 @@ static int worker_file_write_app(int client_fd) {
 
     // writing the file into the cache
     if((temperr=sc_lookup(server_cache, pathname, WRITE_F_APP, &client_fd, NULL, data_written, &bytes_written, &subst_files))!=SUCCESS) {
-        LOG_DEBUG("Append op result: %d\n", temperr);   // TODO REMOVE
         if(temperr==ERR) return ERR;
         *int_buf=temperr;   // preparing the error message for the client
         writen(client_fd, (void*)int_buf, sizeof(int));
@@ -595,6 +621,8 @@ static int worker_file_write_app(int client_fd) {
         if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) res=ERR;
     }
 
+    LOG_OPERATION("##########\nappendToFile: client%d wrote file %s to the server (write_size %lu bytes)\n##########\n\n", client_fd, pathname, bytes_written);
+
 
     // ##### RETURNING SUBSTITUTED FILES #####
 
@@ -605,13 +633,13 @@ static int worker_file_write_app(int client_fd) {
         }
         subst_files_num=i;
     }
-    LOG_DEBUG("\nWARNING: %d files have been expelled\n\n", subst_files_num);   // TODO REMOVE
     // telling the client how many files to expect
     if((writen(client_fd, (void*)&subst_files_num, sizeof(unsigned)))==ERR) res=ERR;
 
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
+        LOG_OPERATION("##########\nappendToFile: file %s expelled (read_size %lu bytes)\n##########\n\n", temp->name, temp->file_size);
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
@@ -687,6 +715,8 @@ static int worker_file_lock(int client_fd) {
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_lock;
 
+    LOG_OPERATION("##########\nlockFile: client%d locked file %s\n##########\n\n", client_fd, pathname);
+
 
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
@@ -738,6 +768,8 @@ static int worker_file_unlock(int client_fd) {
     // returning a success message
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_unlock;
+
+    LOG_OPERATION("##########\nunlockFile: client%d unlocked file %s\n##########\n\n", client_fd, pathname);
 
 
     if(int_buf) free(int_buf);
@@ -791,6 +823,8 @@ static int worker_file_remove(int client_fd) {
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_rm;
 
+    LOG_OPERATION("##########\nremoveFile: client%d removed file %s from the server\n##########\n\n", client_fd, pathname);
+
 
     if(int_buf) free(int_buf);
     if(pathname) free(pathname);
@@ -842,7 +876,8 @@ static int worker_file_close(int client_fd) {
     // returning a success message
     *int_buf=SUCCESS;
     if((writen(client_fd, (void*)int_buf, sizeof(int)))==ERR) goto cleanup_w_close;
-    LOG_DEBUG("Closed with success\n"); // TODO REMOVE
+
+    LOG_OPERATION("##########\ncloseFile: client%d closed (and unlocked) file %s\n##########\n\n", client_fd, pathname);
 
 
     if(int_buf) free(int_buf);

@@ -1,1 +1,0 @@
-- il flag "CANWRITEFILE" viene settato ad 1 quando è stata fatta una write con O_CREATE e messo a 0 da qualunque altro comando

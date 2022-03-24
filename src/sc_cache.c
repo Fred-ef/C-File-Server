@@ -1,7 +1,10 @@
 #include "sc_cache.h"
 
 byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
-ofl_entry** serv_open_files=NULL;   // indicates what files are open for every possible client
+
+unsigned long subst_file_num=0;       // indicates how many files have been replaced during the execution
+unsigned long max_file_number_reached=0;      // indicates the maximum number of file that have been stored at the same time
+unsigned long max_byte_size_reached=0;        // indicates the maximum number of bytes that have been stored at the same time
 
 static int open_file(file* file, const int* usr_id);
 static int read_file(file* file_to_read, byte** data_read, size_t* bytes_used, const int* usr_id);
@@ -13,12 +16,6 @@ static int write_file(file* file, const byte* data_written, const size_t* bytes_
 static int write_append(file* file, const byte* data_written, const size_t* bytes_used, const int* usr_id);
 static int is_duplicate(const file* file1, const file* file2);
 static int int_ptr_cmp(const void* x, const void* y);
-
-static int register_open(const int, const char*);
-static int register_close(const int, const char*);
-
-// TODO -   controllare che si liberino le code di file aperti
-// TODO -   aggiungere cleanup per pulire l'intera cache dai file
 
 
 sc_cache* sc_cache_create(const int max_file_number, const int max_byte_size) {
@@ -84,7 +81,9 @@ int sc_cache_insert(sc_cache* cache, const file* new_file, file*** replaced_file
     }
     else {  // else, pre-allocate the element
         cache->curr_file_number++;      // incrementinc chache's file number
+        if((cache->curr_file_number)>max_file_number_reached) max_file_number_reached=cache->curr_file_number;
         cache->curr_byte_size+=(new_file->file_size);       // incrementing cache's size
+        if((cache->curr_byte_size)>max_byte_size_reached) max_byte_size_reached=cache->curr_byte_size;
 
         temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
         if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
@@ -104,14 +103,10 @@ int sc_cache_insert(sc_cache* cache, const file* new_file, file*** replaced_file
             ((ht->table)[idx]).entry=(void*)new_file;   // saving the file in the current entry
             ((ht->table)[idx]).r_used=nth_chance-1;    // setting the used-bit
             res=FOUND;      // exiting the while-loop
-
-            LOG_DEBUG("PUSHED CORRECTLY\n\n#FILE: %lu\t#BYTES: %lu\n", (cache->curr_file_number), (cache->curr_byte_size));     // TODO REMOVE
         }
 
         // if the element is not free and it is a duplicate, return an error
-        // TODO gestire meglio, che casino (togliere unlock e metterne una alla fine)
-        else if((temperr=is_duplicate(((ht->table)[idx]).entry, new_file))) {  // TODO implementare
-            LOG_DEBUG("THREAD: %d\t: KEY %d WAS DUPLICATE!!!\n", (gettid()), idx);
+        else if((temperr=is_duplicate(((ht->table)[idx]).entry, new_file))) {
             res=EEXIST;
         }
 
@@ -171,13 +166,12 @@ int sc_algorithm(sc_cache* cache, const size_t size_var, file*** replaced_files,
                 if((ht->table)[j].r_used) (ht->table)[j].r_used--;  // if the item was recently used, reset its used-bit
                 else {
                     // if the file isn't currently locked nor opened, proceed to its elimination
-                    if((!((file*)ht->table[j].entry)->f_lock) &&
-                    (ll_isEmpty(((file*)ht->table[j].entry)->open_list))) {
+                    if((!((file*)ht->table[j].entry)->f_lock)) {
                         // locking cache's mem-mtx
                         temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
                         if(temperr) {LOG_ERR(temperr, "replace: locking cache's mem-mutex"); return ERR;}
 
-                        (*replaced_files)[k++]=(file*)ht->table[j].entry;     // getting a reference to the file removed  TODO creare array e aggiungere RETURN
+                        (*replaced_files)[k++]=(file*)ht->table[j].entry;     // getting a reference to the file removed
                         cache->curr_file_number--;
                         cache->curr_byte_size-=((file*)ht->table[j].entry)->file_size;
                         ht->table[j].entry=ht->mark;        // marking the entry as "deleted"
@@ -188,8 +182,10 @@ int sc_algorithm(sc_cache* cache, const size_t size_var, file*** replaced_files,
                             // if the operation that caused the replacement was an insertion, up the file counter
                             if(is_insert) cache->curr_file_number++;
                             cache->curr_byte_size+=size_var;    // add the size variation specified to the memory used
+                            if((cache->curr_byte_size)>max_byte_size_reached) max_byte_size_reached=cache->curr_byte_size;
                             exit=1;     // exiting the loops
                         }
+                        subst_file_num++;   // incrementing the number of substituted files
 
                         // unlocking cache's mem-mtx
                         temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
@@ -237,15 +233,12 @@ int sc_lookup(sc_cache* cache, const char* file_name, const op_code op, const in
         // checking if there's enough space in the cache to memorize the file
         temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
         if(temperr) {LOG_ERR(temperr, "lookup-write: locking cache's mem-mutex"); return ERR;}
-        LOG_DEBUG("Current space: %lu\npredicted space: %lu\ntotal space: %lu\n", cache->curr_byte_size, (cache->curr_byte_size+(*bytes_used)), cache->max_byte_size);
 
         // if the file is too large for the cache, return error
         if((*bytes_used) > cache->max_byte_size) {LOG_ERR(EFBIG, "file is too large"); res=EFBIG;}
         
         // if there isn't enough space, call the replacement algorithm
         else if((cache->curr_byte_size + (*bytes_used)) > cache->max_byte_size) {
-            LOG_DEBUG("YOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO\n");
-            LOG_DEBUG("##### Daaamn outta memory bro\n");
             
             temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
             if(temperr) {LOG_ERR(temperr, "lookup-write: unlocking cache's mem-mutex"); return ERR;}
@@ -258,6 +251,7 @@ int sc_lookup(sc_cache* cache, const char* file_name, const op_code op, const in
         }
         else {  // else (free space is enough), pre-allocate the element
             cache->curr_byte_size+=(*bytes_used);       // incrementing cache's size
+            if((cache->curr_byte_size)>max_byte_size_reached) max_byte_size_reached=cache->curr_byte_size;
 
             temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
             if(temperr) {LOG_ERR(temperr, "lookup-write: unlocking cache's mem-mutex"); return ERR;}
@@ -338,7 +332,8 @@ int sc_lookup(sc_cache* cache, const char* file_name, const op_code op, const in
             }
 
             // disables the writeFile operation (at this point, the first operation has been executed)
-            if(res==SUCCESS) temp_file->f_write=0;
+            // note: if the file was deleted, it now unaccessible
+            if(res==SUCCESS && op!=RM_F) temp_file->f_write=0;
         }
         
         // else, continue probing
@@ -350,10 +345,12 @@ int sc_lookup(sc_cache* cache, const char* file_name, const op_code op, const in
     }
 
     // if the operation was an "open" or a "close", register the file opening/closing
-    if(op==OPEN_F || op==OPEN_L_F)
-        {if((temperr=register_open(*usr_id, file_name))==ERR) return ERR;}
-    else if(op==CLOSE_F)
-        {if((temperr=register_close(*usr_id, file_name))==ERR) return ERR;}
+    if(op==OPEN_F || op==OPEN_L_F) {
+        if((temperr=conc_fifo_push(open_files[*usr_id], (void*)strdup(file_name)))==ERR) {
+            LOG_ERR(errno, "register open: saving open name");
+            return ERR;
+        }
+    }
 
 
 
@@ -364,7 +361,6 @@ int sc_lookup(sc_cache* cache, const char* file_name, const op_code op, const in
 cleanup_lookup:
     if(op==WRITE_F || op== WRITE_F_APP) {
         if(res!=EFBIG && res!=ENOSPC) {
-            LOG_DEBUG("Here we go...\n");
             // de-allocating the pre-allocated memory
             temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
             if(temperr) {LOG_ERR(temperr, "lookup-write: locking cache's mem-mutex"); return ERR;}
@@ -441,65 +437,63 @@ file* file_create(const char* pathname) {
 }
 
 
-// returns an open-files-list entry, used to track files opened by clients
-ofl_entry* ofl_create() {
-    ofl_entry* new_entry=(ofl_entry*)malloc(sizeof(ofl_entry));
-    if(!new_entry) return NULL;
-
-    new_entry->open_files_list=ll_create();
-    if(!(new_entry->open_files_list)) return NULL;
-
-    if((pthread_mutex_init(&(new_entry->open_files_list_mtx), NULL))!=SUCCESS)
-    {LOG_ERR(errno, "ofl_create: initializing mutex"); return NULL;}
-
-    return new_entry;
-}
-
-
-// fully deallocates an open-files-list entry and all of its content
-int ofl_destroy(ofl_entry* entry) {
-    if(!entry) {errno=EINVAL; return ERR;}
-
-    int temperr;
-
-    if((temperr=ll_dealloc_full(entry->open_files_list))==ERR) return ERR;
-    temperr=pthread_mutex_destroy(&(entry->open_files_list_mtx));
-    if(temperr) {errno=temperr; return ERR;}
-
-
-    free(entry);
-    return SUCCESS;
-}
-
-
 // closes every file opened by the user having the ID passed as param
 int usr_close_all(sc_cache* cache, const int* usr_id) {
     char* temp_file=NULL;
-    llist* temp_list;
-    temp_list=(serv_open_files[*usr_id])->open_files_list;
-
-    if(!(ll_isEmpty(temp_list))) {
-        conc_node aux1=temp_list->head;
-        conc_node aux2=aux1;
-
-        while((aux1!=NULL)) {
-            aux2=aux1->next;
-            temp_file=(char*)(aux1->data);
-            LOG_DEBUG("Removing file %s\n...\n", temp_file);
-
-            if((sc_lookup(cache, temp_file, CLOSE_F, usr_id, NULL, NULL, NULL, NULL)==ERR)
-                && errno!=ENOENT) {
-                LOG_ERR(errno, "closing all opened files");
-                return ERR;
-            }
-            aux1=aux2;
+    
+    while((temp_file=(char*)conc_fifo_pop(open_files[*usr_id]))) {
+        if((sc_lookup(cache, temp_file, CLOSE_F, usr_id, NULL, NULL, NULL, NULL)==ERR)
+            && errno!=ENOENT) {
+            LOG_ERR(errno, "closing all opened files");
+            return ERR;
         }
+        free(temp_file);
     }
 
 
     return SUCCESS;
 }
 
+
+// completely wipes the cache, deallocating everything in it WARNING: non concurrent
+int sc_cache_clean(sc_cache* cache) {
+    if(!cache || !(cache->ht)) {
+        LOG_ERR(EINVAL, "uninitialized cache/ht");
+        return ERR;
+    }
+
+    conc_hash_table* ht=cache->ht;  // shortcut
+    int temperr;
+    int i;
+
+    if(ht->table) {
+        for(i=0; i<(ht->size*2); i++) {
+            if(((ht->table)[i].entry) && ((ht->table)[i].entry)!=(ht->mark)) {
+                file* temp=(file*)ht->table[i].entry;
+                if(temp->data) free(temp->data);
+                if(temp->name) free(temp->name);
+                if(temp->open_list) {
+                    temperr=ll_dealloc_full(temp->open_list);
+                    if(temperr==ERR) return ERR;    // fatal error
+                }
+                free(temp);
+            }
+        }
+        free(ht->table);
+    }
+    if(ht->mark) free(ht->mark);
+    free(ht);
+
+    if((temperr=pthread_mutex_destroy(&(cache->mem_check_mtx)))==ERR) return ERR;
+    free(cache);
+
+
+    return SUCCESS;
+}
+
+
+
+// ########## CACHE OPERATIONS ##########
 
 
 // helper function: opens the file for the user; if it was already opened, returns successfully
@@ -510,7 +504,7 @@ static int open_file(file* file, const int* usr_id) {
     if(!real_id) return ERR;    // fatal error, errno alreadyset by the call
     *real_id=*usr_id;
 
-    if((temperr=ll_insert_head(file->open_list, (void*)real_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
+    if((temperr=ll_insert_head(&(file->open_list), (void*)real_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
     return ERR;   // fatal error, errno already set by the call
 
 
@@ -533,7 +527,6 @@ static int read_file(file* file_to_read, byte** data_read, size_t* bytes_used, c
         if(!(*data_read)) return ERR;  // fatal error, errno already set by the call
 
         // copying data from file to buffer
-        // TODO cambiare con la versione DECOMPRESSA
         for(i=0; i<(file_to_read->file_size); i++) (*data_read)[i]=(file_to_read->data)[i];
     }
     else (*data_read)=NULL;     // file was empty
@@ -565,7 +558,6 @@ static int lock_file(file* file, const int* usr_id) {
 static int unlock_file(file* file, const int* usr_id) {
     int res;
 
-    LOG_DEBUG("UNLOCKING!!!\n");
     if(file->f_lock!=(*usr_id)) return EPERM;   // user wasn't holding the lock
 
     res=ll_search(file->open_list, (void*)usr_id, int_ptr_cmp);     // checking if the file has been opened by the user
@@ -605,7 +597,7 @@ static int close_file(file* file, const int* usr_id) {
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
     if(file->f_lock==(*usr_id)) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
-    if((temperr=ll_remove(file->open_list, (void*)usr_id, int_ptr_cmp))==ERR)  // insert usr_id in the file_open list
+    if((temperr=ll_remove(&(file->open_list), (void*)usr_id, int_ptr_cmp))==ERR)  // remove usr_id from the file_open list
     return ERR;   // fatal error, errno already set by the call
 
     return SUCCESS;
@@ -617,14 +609,13 @@ static int write_file(file* file, const byte* data_written, const size_t* bytes_
     if(!file->f_write || file->f_lock!=(*usr_id)) return EPERM;    // last operation was not create&lock
 
     int i;  // for loop index
-    LOG_DEBUG("Doing the writing :D\n");
 
     file->data=(byte*)malloc((*bytes_used)*sizeof(byte));
     if(!file->data) {LOG_ERR(errno, "writing file: memerr"); return ERR;}
     file->file_size=(*bytes_used);  // updating file size
 
     for(i=0; i<(*bytes_used); i++) {    // writing data into the file
-        (file->data)[i] = data_written[i];      // TODO CAMBIARE CON LA COMPRESSIONE
+        (file->data)[i] = data_written[i];
     }
 
     return SUCCESS;
@@ -653,7 +644,6 @@ static int write_append(file* file, const byte* data_written, const size_t* byte
     if(file->data) free(file->data);    // destroying old data
     file->data=updated_data;    // updating file's data
     file->file_size=write_size;     // updating file's size
-    LOG_DEBUG("Append completed! ###\n");
 
     return SUCCESS;
 }
@@ -677,50 +667,4 @@ static int int_ptr_cmp(const void* x, const void* y) {
     if((*(int*)x)==(*(int*)y)) return 0;    // x=y
     else if((*(int*)x)>(*(int*)y)) return 1;    // x>y
     else return -1;      // x<y
-}
-
-
-// helper function: compares two void pointers as strings
-static int str_ptr_cmp(const void* s, const void* t) {
-    // warning: segfault if one of the pointers is null
-    return strcmp((char*)s, (char*)t);
-}
-
-
-static int register_open(const int usr_id, const char* path) {
-    if(!path) {LOG_ERR(EINVAL, "register open: path cannot be null"); return ERR;}
-    int temperr;
-    char* filename=(char*)calloc(strlen(path)+1, sizeof(char));
-    if(!filename) {LOG_ERR(errno, "allocating filename to register file open"); return ERR;}
-    strcpy(filename, path);
-
-    if((temperr=pthread_mutex_lock(&((serv_open_files[usr_id])->open_files_list_mtx)))!=SUCCESS)
-    {LOG_ERR(temperr, "locking mutex to register file open"); return ERR;}
-
-    if((temperr=ll_insert_head((serv_open_files[usr_id])->open_files_list, (void*)filename, str_ptr_cmp))==ERR)
-    {LOG_ERR(errno, "registering open file"); return ERR;}
-
-    if((temperr=pthread_mutex_unlock(&((serv_open_files[usr_id])->open_files_list_mtx)))!=SUCCESS)
-    {LOG_ERR(temperr, "unlocking mutex to register file open"); return ERR;}
-
-
-    LOG_DEBUG("\n##########\nJust pushed file %s into user %d's list\n##########\n\n", filename, usr_id);
-    return SUCCESS;
-}
-
-
-static int register_close(const int usr_id, const char* filename) {
-    int temperr;
-
-    if((temperr=pthread_mutex_lock(&((serv_open_files[usr_id])->open_files_list_mtx)))!=SUCCESS)
-    {LOG_ERR(temperr, "locking mutex to register file open"); return ERR;}
-
-    if((temperr=ll_remove((serv_open_files[usr_id])->open_files_list, (void*)filename, str_ptr_cmp))==ERR)
-    {LOG_ERR(errno, "registering open file"); return ERR;}
-
-    if((temperr=pthread_mutex_unlock(&((serv_open_files[usr_id])->open_files_list_mtx)))!=SUCCESS)
-    {LOG_ERR(temperr, "unlocking mutex to register file open"); return ERR;}
-
-
-    return SUCCESS;
 }

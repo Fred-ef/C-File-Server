@@ -1,7 +1,8 @@
 # This file contains default values for every parameter used by the parser in order to provide the program with the setup-info it needs
 # -------------------------------------------------------------------------------------------------------------------------------------
 .
-thread_pool_cap=4
+thread_pool_cap=8
 sock_addr=./tmp/fileserver.sk
-server_byte_size=1000
-server_file_size=10000
+log_file_path=./tmp/log.txt
+server_byte_size=32000000
+server_file_size=100

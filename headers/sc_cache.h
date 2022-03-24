@@ -33,15 +33,13 @@ typedef struct file {
     llist* open_list;     // holds a list of the users by which the file is currenlty opened
 } file;
 
-// defining the structure of an open file list entry
-typedef struct open_files_list_entry {
-    llist* open_files_list;
-    pthread_mutex_t open_files_list_mtx;
-} ofl_entry;
-
 
 byte nth_chance;      // indicates the "chance" order of the algorithm (2 for second chance)
-ofl_entry** serv_open_files;   // indicates what files are open for every possible client
+extern conc_queue** open_files;    // holds a description of all files opened by every possible client
+
+unsigned long subst_file_num;       // indicates how many files have been replaced during the execution
+unsigned long max_file_number_reached;      // indicates the maximum number of file that have been stored at the same time
+unsigned long max_byte_size_reached;        // indicates the maximum number of bytes that have been stored at the same time
 
 
 // MAIN OPERATIONS
@@ -51,8 +49,7 @@ int sc_algorithm(sc_cache*, const size_t, file***, const bool, const char*);    
 int sc_lookup(sc_cache*, const char*, const op_code, const int*, byte**, const byte*, size_t*, file***);      // executes the request specified in the operation code
 int sc_return_n_files(sc_cache*, const int, file***);   // returns the first N files saved on the cache
 file* file_create(const char* pathname);      // returns an empty file with pathname as its name
-ofl_entry* ofl_create();    // returns an open-files-list entry, used to track files opened by clients
-int ofl_destroy(ofl_entry*);    // fully deallocates an open-files-list entry and all of its content
 int usr_close_all(sc_cache*, const int*);  // closes every file opened by the user having the ID passed as param
+int sc_cache_clean(sc_cache*);      // completely wipes the cache, deallocating everything in it WARNING: non concurrent
 
 #endif // sc_cache_h
