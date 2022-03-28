@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # test1, execute with valgring and config1.txt
-valgrind --leak-check=full ./server ./config/config1.txt &
+valgrind -s --leak-check=full --show-leak-kinds=all ./server ./config/config1.txt &
 SRV_PID=$!
 export SRV_PID
 

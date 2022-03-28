@@ -245,7 +245,7 @@ int main(int argc, char* argv[]) {
     hard_close=1;   // notifying all threads to stop working
 
 
-    // #################### LOG SECTION ####################
+    // #################### LOGGING SECTION ####################
 
     int logfile_fd;
     if((logfile_fd=open(log_file_path, O_WRONLY | O_APPEND | O_CREAT, 0777))==ERR) {

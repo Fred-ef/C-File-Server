@@ -405,7 +405,7 @@ static int send_files(char* arg) {
 
         struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
         if(!file_stat) return ERR;
-        if((temperr=stat(filename, file_stat))==ERR)
+        if((temperr=stat(token, file_stat))==ERR)
         {LOG_ERR(errno, "-W - getting file info"); return ERR;}
         LOG_OUTPUT("-W: successfully wrote file  \"%s\" to the server (%lubytes written)\n",token, file_stat->st_size);
         free(file_stat);
@@ -502,7 +502,7 @@ static int read_files(char* arg) {
             LOG_ERR(errno, "-r - error while reading files");
             goto cleanup_2;
         }
-        LOG_OUTPUT("-r: successfully read file \"%s\" from the server (%lubytes read\n", (char*)token, size);
+        LOG_OUTPUT("-r: successfully read file \"%s\" from the server (%lubytes read)\n", (char*)token, size);
         // if a save folder has been specified, save the file obtained there; else, discard it
         if(save_dir) {
             // if the file has been successfully retrieved, write it in the specified folder
@@ -763,7 +763,7 @@ static int visit_folder(char* starting_dir, int* rem_files) {
 
             struct stat* file_stat=(struct stat*)malloc(sizeof(struct stat));
             if(!file_stat) return ERR;
-            if((temperr=stat(filename, file_stat))==ERR)
+            if((temperr=stat(curr_elem_name, file_stat))==ERR)
             {LOG_ERR(errno, "-w getting file info"); return ERR;}
             LOG_OUTPUT("-w: successfully wrote file  \"%s\" to the server (%lubytes written)\n",curr_elem_name, file_stat->st_size);
             free(file_stat);
