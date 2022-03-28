@@ -38,9 +38,6 @@ void* worker_func(void* arg) {
         if(hard_close) break;   // server must terminate immediately
 
         client_fd=*int_buf;    // preparing to serve the user's request
-        if(int_buf) {free(int_buf); int_buf=NULL;}
-
-        int_buf=(int*)malloc(sizeof(int));
         *int_buf=0;
         if(!int_buf) {LOG_ERR(errno, "worker: preparing op code read"); exit(EXIT_FAILURE);}
 
@@ -167,7 +164,7 @@ void* worker_func(void* arg) {
 
     if(id) free(id);
     if(int_buf) free(int_buf);
-    pthread_exit((void*)SUCCESS);
+    return NULL;
 }
 
 
@@ -245,7 +242,6 @@ static int worker_file_open(int client_fd) {
             writen(client_fd, (void*)int_buf, sizeof(int));
             res=ERR; goto return_expelled_files;
         }
-        LOG_OPERATION("##########\nopenLock: client%d locked file %s\n##########\n\n", client_fd, pathname);
     }
 
     if(flags==(O_CREATE|O_LOCK))new_file->f_write=1;    // enabling the writeFile operation
@@ -254,6 +250,7 @@ static int worker_file_open(int client_fd) {
 
     if(new_file) {LOG_OPERATION("##########\nopenCreate: client%d created file %s\n##########\n\n", client_fd, new_file->name);}
     else {LOG_OPERATION("##########\nopenFile: client%d opened file %s\n##########\n\n", client_fd, pathname);}
+    if(flags==O_LOCK || flags==(O_CREATE|O_LOCK)) LOG_OPERATION("##########\nopenLock: client%d locked file %s\n##########\n\n", client_fd, pathname);
 
 
     // ##### RETURNING EXPELLED FILES #####

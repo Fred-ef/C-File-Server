@@ -219,7 +219,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 else {    // generic request by a connected client
-                    LOG_OPERATION("##########\nClient %u just connected\n##########\n\n", i);
+                    LOG_OPERATION("##########\nQueued client %u's request\n##########\n\n", i);
                     int* client_fd=malloc(sizeof(int));
                     if(!client_fd) {LOG_ERR(errno, "manager: preparing client fd"); goto cleanup_manager;}
                     *client_fd=i;
@@ -276,6 +276,13 @@ int main(int argc, char* argv[]) {
     if((temperr=pthread_mutex_unlock(&(requests_queue->queue_mtx)))==ERR) {
         LOG_ERR(temperr, "manager: unlocking request queue"); goto cleanup_manager;
     }
+    // joining worker threads
+    for(i=0; i<thread_pool_cap; i++) {
+        if((temperr=pthread_join(worker_threads_arr[i], NULL))==ERR) {
+            LOG_ERR(temperr, "manager: joining workers");
+            goto cleanup_manager;
+        }
+    }
 
     
     // awakening logger thread
@@ -288,22 +295,15 @@ int main(int argc, char* argv[]) {
     if((temperr=pthread_mutex_unlock(&(log_queue->queue_mtx)))==ERR) {
         LOG_ERR(temperr, "logging: unlocking log queue"); return ERR;
     }
+    // joining logger thread
+    if((temperr=pthread_join(logger_thread, NULL))==ERR) {
+        LOG_ERR(temperr, "manager: joining logger");
+        goto cleanup_manager;
+    }
 
 
 
     // #################### SERVER CLOSURE ####################
-
-    for(i=0; i<thread_pool_cap; i++) {      // joining worker threads
-        if((temperr=pthread_join(worker_threads_arr[i], NULL))==ERR) {
-            LOG_ERR(temperr, "manager: joining workers");
-            goto cleanup_manager;
-        }
-    }
-
-    if((temperr=pthread_join(logger_thread, NULL))==ERR) {      // joining logger thread
-        LOG_ERR(temperr, "manager: joining logger");
-        goto cleanup_manager;
-    }
 
     close(fd_pipe_read);    // closing read pipe
     close(fd_pipe_write);   // closing write pipe

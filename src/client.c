@@ -488,6 +488,7 @@ static int read_files(char* arg) {
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
         if((temperr=openFile(token, 0))==ERR) {    // opening the file
+        LOG_DEBUG("tried to read file %s\n", token);
             LOG_ERR(errno, "-r - could not open file");
             return ERR;
         }

@@ -44,5 +44,5 @@ void* logger_func(void* arg) {
 
 
     if(buffer) free(buffer);
-    pthread_exit((void*)SUCCESS);
+    return NULL;
 }
