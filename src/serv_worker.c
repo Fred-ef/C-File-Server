@@ -148,17 +148,25 @@ void* worker_func(void* arg) {
         if(int_buf) {free(int_buf); int_buf=NULL;}  // resetting int_buf to NULL value
     }
 
+    if((temperr=pthread_mutex_lock(&(log_queue->queue_mtx)))==ERR) {
+        LOG_ERR(temperr, "logging: locking log queue"); exit(EXIT_FAILURE);
+    }
+    
     int logfile_fd;
     if((logfile_fd=open(log_file_path, O_WRONLY | O_APPEND | O_CREAT, 0777))==ERR) {
         LOG_ERR(errno, "logger: opening log file");
         exit(EXIT_FAILURE);
     }
 
-    dprintf(logfile_fd, "##########\nWORKER%d served %lu requests\n##########\n\n", *id, total_requests_num);
+    dprintf(logfile_fd, "##########\nWORKER %d served %lu requests\n##########\n\n", *id, total_requests_num);
 
     if((close(logfile_fd))==ERR) {
         LOG_ERR(errno, "logger: closing log file");
         exit(EXIT_FAILURE);
+    }
+
+    if((temperr=pthread_mutex_unlock(&(log_queue->queue_mtx)))==ERR) {
+        LOG_ERR(temperr, "logging: unlocking log queue"); exit(EXIT_FAILURE);
     }
 
 
@@ -269,7 +277,7 @@ static int worker_file_open(int client_fd) {
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
-        LOG_OPERATION("##########\nopenFile: file %s expelled (read_size %lu bytes)\n##########\n\n", temp->name, temp->file_size);
+        LOG_OPERATION("##########\nopenFile: file %s expelled due to Client%d request (read_size %lu bytes)\n##########\n\n", temp->name, client_fd, temp->file_size);
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
@@ -436,7 +444,7 @@ static int worker_file_readn(int client_fd) {
     }
     
     if(res!=SUCCESS) goto cleanup_w_readn;
-    LOG_OPERATION("##########\nreadNFiles: client%d read %u files (read_size %lu bytes total)\n##########\n\n", client_fd, returned_files_num, total_bytes_read);
+    LOG_OPERATION("##########\nreadNFiles: client%d read %u files (read_n %u read_size %lu bytes total)\n##########\n\n", client_fd, returned_files_num, returned_files_num, total_bytes_read);
 
 
     if(int_buf) free(int_buf);
@@ -525,7 +533,7 @@ static int worker_file_write(int client_fd) {
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
-        LOG_OPERATION("##########\nwriteFile: file %s expelled (read_size %lu bytes)\n##########\n\n", temp->name, temp->file_size);
+        LOG_OPERATION("##########\nwriteFile: file %s expelled due to Client%d request (read_size %lu bytes)\n##########\n\n", temp->name, client_fd, temp->file_size);
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;
@@ -636,7 +644,7 @@ static int worker_file_write_app(int client_fd) {
     // sending the substituted files back to the client
     for(i=0; i<subst_files_num; i++) {  // if there are no subst files, the cycle is skipped
         file* temp=subst_files[i];
-        LOG_OPERATION("##########\nappendToFile: file %s expelled (read_size %lu bytes)\n##########\n\n", temp->name, temp->file_size);
+        LOG_OPERATION("##########\nappendToFile: file %s expelled due to Client%d request (read_size %lu bytes)\n##########\n\n", temp->name, client_fd, temp->file_size);
         size_t temp_path_len=strlen(temp->name);
         if((writen(client_fd, (void*)&temp_path_len, sizeof(size_t)))==ERR) res=ERR;
         if((writen(client_fd, (void*)(temp->name), temp_path_len))==ERR) res=ERR;

@@ -488,7 +488,6 @@ static int read_files(char* arg) {
     // for every file in the argument string, request it to the server and save it in the save_dir if specified
     while(token) {
         if((temperr=openFile(token, 0))==ERR) {    // opening the file
-        LOG_DEBUG("tried to read file %s\n", token);
             LOG_ERR(errno, "-r - could not open file");
             return ERR;
         }
@@ -746,7 +745,6 @@ static int visit_folder(char* starting_dir, int* rem_files) {
                         goto cleanup_vis_fold;
                     }
                     if((temperr=append_files(curr_elem_name))==ERR) {
-                        LOG_ERR(errno, "-w - could not write in append");
                         goto cleanup_vis_fold;
                     }
                 }
@@ -833,7 +831,7 @@ static int close_files(llist* open_files) {
         conc_node aux1=open_files->head;
         while((aux1!=NULL)) {
             temp_file=(char*)(aux1->data);
-            if((closeFile(temp_file))==ERR && errno!=ENOENT) {
+            if((closeFile(temp_file))==ERR && errno!=ENOENT && errno!=EPERM) {
                 LOG_ERR(errno, "closing all opened files");
                 return ERR;
             }

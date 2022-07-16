@@ -58,3 +58,7 @@ impl.txt
 
 # Folders
 .vscode/
+
+#bins
+client
+server

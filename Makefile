@@ -33,17 +33,23 @@ server		: ./src/serv_manager.c
 test1		:
 		make all;
 		chmod +x script/test1.sh
+		chmod +x script/analysis.sh
 		script/test1.sh
+		script/analysis.sh
 
 test2		:
 		make all;
 		chmod +x script/test2.sh
+		chmod +x script/analysis.sh
 		script/test2.sh
+		script/analysis.sh
 
 test3		:
 		make all;
 		chmod +x script/test3.sh
+		chmod +x script/analysis.sh
 		script/test3.sh
+		script/analysis.sh
 
 
 clean		:

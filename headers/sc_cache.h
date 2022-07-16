@@ -24,7 +24,6 @@ typedef struct sc_cache {
 // defining the structure of a file inside the cache
 typedef struct file {
     char* name;     // represents the file's identifier inside the file server
-    // HUFFMAN TREE CONTAINING THE DECOMPRESSION INFORMATION
     size_t file_size;
     byte* data;     // represents the actual information contained in the file
     byte f_lock;     // flag indicating if and by whom the file is currently locked
@@ -37,7 +36,6 @@ typedef struct file {
 byte nth_chance;      // indicates the "chance" order of the algorithm (2 for second chance)
 extern conc_queue** open_files;    // holds a description of all files opened by every possible client
 
-unsigned long subst_file_num;       // indicates how many files have been replaced during the execution
 unsigned long max_file_number_reached;      // indicates the maximum number of file that have been stored at the same time
 unsigned long max_byte_size_reached;        // indicates the maximum number of bytes that have been stored at the same time
 

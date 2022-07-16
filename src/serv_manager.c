@@ -256,7 +256,6 @@ int main(int argc, char* argv[]) {
     dprintf(logfile_fd, "##########\nMANAGER: max cache file size: %lu files\n##########\n\n", max_file_number_reached);
     dprintf(logfile_fd, "##########\nMANAGER: max cache byte size: %lu bytes\n##########\n\n", max_byte_size_reached);
     dprintf(logfile_fd, "##########\nMANAGER: max clients connected at the same time: %u clients\n##########\n\n", (max_fd_active-max_def_fd));
-    dprintf(logfile_fd, "##########\nMANAGER: total number of expelled files: %lu files\n##########\n\n", subst_file_num);
 
     if((close(logfile_fd))==ERR) {
         LOG_ERR(errno, "logger: closing log file");

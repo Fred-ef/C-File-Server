@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# test1, execute with valgring and config1.txt
+# test1, executed with valgrind and config1.txt
 valgrind -s --leak-check=full --show-leak-kinds=all ./server ./config/config1.txt &
 SRV_PID=$!
 export SRV_PID
@@ -22,4 +22,6 @@ bash -c 'sleep 10 && kill -s SIGHUP ${SRV_PID}' &
 #fifth command
 ./client -f ./tmp/fileserver.sk -l ./files/file1.txt,./files/file2.txt -p -R n=0 -u ./files/file1.txt,./files/file2.txt -d ./saved/ -t 200
 
+# joining and exiting
+wait ${SRV_PID}
 exit 0

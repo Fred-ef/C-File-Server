@@ -2,7 +2,6 @@
 
 byte nth_chance=2;      // indicates the "chance" order of the algorithm (2 for second chance)
 
-unsigned long subst_file_num=0;       // indicates how many files have been replaced during the execution
 unsigned long max_file_number_reached=0;      // indicates the maximum number of file that have been stored at the same time
 unsigned long max_byte_size_reached=0;        // indicates the maximum number of bytes that have been stored at the same time
 
@@ -65,7 +64,7 @@ int sc_cache_insert(sc_cache* cache, const file* new_file, file*** replaced_file
     if(temperr) {LOG_ERR(temperr, "insert: locking cache's mem-mutex"); return ERR;}
 
     // if the file is too large for the cache, return error
-    if(new_file->file_size > cache->max_byte_size) {LOG_ERR(EFBIG, "file is too large"); res=EFBIG;}
+    if(new_file->file_size > cache->max_byte_size) res=EFBIG;
     // if there isn't enough space, call the replacement algorithm
     else if(((cache->curr_file_number + 1) > cache->max_file_number)
     || ((cache->curr_byte_size + new_file->file_size) > cache->max_byte_size)) {
@@ -80,10 +79,8 @@ int sc_cache_insert(sc_cache* cache, const file* new_file, file*** replaced_file
             }
     }
     else {  // else, pre-allocate the element
-        cache->curr_file_number++;      // incrementinc chache's file number
-        if((cache->curr_file_number)>max_file_number_reached) max_file_number_reached=cache->curr_file_number;
+        cache->curr_file_number++;      // incrementing chache's file number
         cache->curr_byte_size+=(new_file->file_size);       // incrementing cache's size
-        if((cache->curr_byte_size)>max_byte_size_reached) max_byte_size_reached=cache->curr_byte_size;
 
         temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));      // unlocking cache's mem-mtx
         if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
@@ -121,6 +118,15 @@ int sc_cache_insert(sc_cache* cache, const file* new_file, file*** replaced_file
 
     // if the insertion failed, return an error
     if(res!=FOUND) goto cleanup_insert;
+
+    // updating max_file/max_byte sizes if necessary
+    temperr=pthread_mutex_lock(&(cache->mem_check_mtx));
+    if(temperr) {LOG_ERR(temperr, "insert: locking cache's mem-mutex"); return ERR;}
+    if((cache->curr_file_number)>max_file_number_reached) max_file_number_reached=cache->curr_file_number;
+    if((cache->curr_byte_size)>max_byte_size_reached) max_byte_size_reached=cache->curr_byte_size;
+    temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
+    if(temperr) {LOG_ERR(temperr, "insert: unlocking cache's mem-mutex"); return ERR;}
+
     return SUCCESS;     // returns the insert operation's result
 
 // CLEANUP SECTION
@@ -185,7 +191,6 @@ int sc_algorithm(sc_cache* cache, const size_t size_var, file*** replaced_files,
                             if((cache->curr_byte_size)>max_byte_size_reached) max_byte_size_reached=cache->curr_byte_size;
                             exit=1;     // exiting the loops
                         }
-                        subst_file_num++;   // incrementing the number of substituted files
 
                         // unlocking cache's mem-mtx
                         temperr=pthread_mutex_unlock(&(cache->mem_check_mtx));
@@ -443,7 +448,7 @@ int usr_close_all(sc_cache* cache, const int* usr_id) {
     
     while((temp_file=(char*)conc_fifo_pop(open_files[*usr_id]))) {
         if((sc_lookup(cache, temp_file, CLOSE_F, usr_id, NULL, NULL, NULL, NULL)==ERR)
-            && errno!=ENOENT) {
+            && errno!=ENOENT && errno!=EPERM) {
             LOG_ERR(errno, "closing all opened files");
             return ERR;
         }
@@ -596,7 +601,9 @@ static int close_file(file* file, const int* usr_id) {
     if(!res) return EPERM;      // file not opened: operation not permitted
     if(res==ERR) return ERR;    // fatal error, errno already set by the call
 
-    if(file->f_lock==(*usr_id)) file->f_lock=0;    // if the user has a lock on the file, unlock it before closing it
+    if(file->f_lock==(*usr_id)) {
+        file->f_lock=0;     // if the user has a lock on the file, unlock it before closing it
+    }
     if((temperr=ll_remove(&(file->open_list), (void*)usr_id, int_ptr_cmp))==ERR)  // remove usr_id from the file_open list
     return ERR;   // fatal error, errno already set by the call
 
